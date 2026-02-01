@@ -1,11 +1,14 @@
 package com.shiroha.skinlayers3d.renderer.model;
 
 import com.shiroha.skinlayers3d.SkinLayers3DClient;
+import com.shiroha.skinlayers3d.config.ConfigManager;
 import com.shiroha.skinlayers3d.renderer.core.EyeTrackingHelper;
 import com.shiroha.skinlayers3d.renderer.core.IMMDModel;
 import com.shiroha.skinlayers3d.renderer.core.RenderContext;
 import com.shiroha.skinlayers3d.renderer.resource.MMDTextureManager;
 import com.shiroha.skinlayers3d.renderer.shader.ShaderProvider;
+import com.shiroha.skinlayers3d.renderer.shader.ToonShaderCpu;
+import com.shiroha.skinlayers3d.renderer.shader.ToonConfig;
 import com.shiroha.skinlayers3d.NativeFunc;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.platform.Window;
@@ -40,6 +43,8 @@ public class MMDModelOpenGL implements IMMDModel {
     static boolean isShaderInited = false;
     static int MMDShaderProgram;
     public static boolean isMMDShaderEnabled = false;
+    private static ToonShaderCpu toonShaderCpu;
+    private static final ToonConfig toonConfig = ToonConfig.getInstance();
     int shaderProgram;
 
     int positionLocation;
@@ -395,6 +400,26 @@ public class MMDModelOpenGL implements IMMDModel {
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
         deliverStack.scale(0.09f, 0.09f, 0.09f);
         
+        // 检查是否启用 Toon 渲染
+        boolean useToon = ConfigManager.isToonRenderingEnabled();
+        if (useToon) {
+            // 初始化 Toon 着色器（懒加载）
+            if (toonShaderCpu == null) {
+                toonShaderCpu = new ToonShaderCpu();
+                if (!toonShaderCpu.init()) {
+                    logger.warn("ToonShaderCpu 初始化失败，回退到普通着色");
+                    useToon = false;
+                }
+            }
+        }
+        
+        if (useToon && toonShaderCpu != null && toonShaderCpu.isInitialized()) {
+            // Toon 渲染模式
+            renderToon(MCinstance, lightIntensity, deliverStack);
+            return;
+        }
+        
+        // 普通渲染模式
         if(SkinLayers3DClient.usingMMDShader == 0){
             shaderProgram = RenderSystem.getShader().getId();
             setUniforms(RenderSystem.getShader(), deliverStack);
@@ -666,6 +691,175 @@ public class MMDModelOpenGL implements IMMDModel {
         RenderSystem.activeTexture(GL46C.GL_TEXTURE0);
 
         RenderSystem.getShader().clear();
+        BufferUploader.reset();
+    }
+
+    /**
+     * Toon 渲染模式（CPU 蒙皮版本）
+     * 两遍渲染：1. 描边（背面扩张）2. 主体（卡通着色）
+     */
+    private void renderToon(Minecraft MCinstance, float lightIntensity, PoseStack deliverStack) {
+        BufferUploader.reset();
+        GL46C.glBindVertexArray(vertexArrayObject);
+        RenderSystem.enableBlend();
+        RenderSystem.enableDepthTest();
+        RenderSystem.blendEquation(GL46C.GL_FUNC_ADD);
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
+        
+        // 获取蒙皮后的顶点数据（由 Rust 引擎计算）
+        int posAndNorSize = vertexCount * 12;
+        long posData = nf.GetPoss(model);
+        nf.CopyDataToByteBuffer(posBuffer, posData, posAndNorSize);
+        long normalData = nf.GetNormals(model);
+        nf.CopyDataToByteBuffer(norBuffer, normalData, posAndNorSize);
+        int uv0Size = vertexCount * 8;
+        long uv0Data = nf.GetUVs(model);
+        nf.CopyDataToByteBuffer(uv0Buffer, uv0Data, uv0Size);
+        
+        // 设置矩阵
+        modelViewMatBuff.clear();
+        projMatBuff.clear();
+        deliverStack.last().pose().get(modelViewMatBuff);
+        RenderSystem.getProjectionMatrix().get(projMatBuff);
+        
+        GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, indexBufferObject);
+        
+        // ===== 第一遍：描边 =====
+        if (toonConfig.isOutlineEnabled()) {
+            toonShaderCpu.useOutline();
+            
+            int posLoc = toonShaderCpu.getOutlinePositionLocation();
+            int norLoc = toonShaderCpu.getOutlineNormalLocation();
+            
+            // 设置顶点属性
+            if (posLoc != -1) {
+                GL46C.glEnableVertexAttribArray(posLoc);
+                GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, vertexBufferObject);
+                GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, posBuffer, GL46C.GL_DYNAMIC_DRAW);
+                GL46C.glVertexAttribPointer(posLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
+            }
+            if (norLoc != -1) {
+                GL46C.glEnableVertexAttribArray(norLoc);
+                GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, normalBufferObject);
+                GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, norBuffer, GL46C.GL_DYNAMIC_DRAW);
+                GL46C.glVertexAttribPointer(norLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
+            }
+            
+            toonShaderCpu.setOutlineProjectionMatrix(projMatBuff);
+            toonShaderCpu.setOutlineModelViewMatrix(modelViewMatBuff);
+            toonShaderCpu.setOutlineWidth(toonConfig.getOutlineWidth());
+            toonShaderCpu.setOutlineColor(
+                toonConfig.getOutlineColorR(),
+                toonConfig.getOutlineColorG(),
+                toonConfig.getOutlineColorB()
+            );
+            
+            // 正面剔除，只绘制背面（扩张后的背面形成描边）
+            GL46C.glCullFace(GL46C.GL_FRONT);
+            RenderSystem.enableCull();
+            
+            // 绘制所有子网格
+            long subMeshCount = nf.GetSubMeshCount(model);
+            for (long i = 0; i < subMeshCount; ++i) {
+                int materialID = nf.GetSubMeshMaterialID(model, i);
+                if (!nf.IsMaterialVisible(model, materialID)) continue;
+                if (nf.GetMaterialAlpha(model, materialID) == 0.0f) continue;
+                
+                long startPos = (long) nf.GetSubMeshBeginIndex(model, i) * indexElementSize;
+                int count = nf.GetSubMeshVertexCount(model, i);
+                GL46C.glDrawElements(GL46C.GL_TRIANGLES, count, indexType, startPos);
+            }
+            
+            // 恢复背面剔除
+            GL46C.glCullFace(GL46C.GL_BACK);
+            
+            // 禁用描边着色器的顶点属性
+            if (posLoc != -1) GL46C.glDisableVertexAttribArray(posLoc);
+            if (norLoc != -1) GL46C.glDisableVertexAttribArray(norLoc);
+        }
+        
+        // ===== 第二遍：主体（Toon 着色） =====
+        toonShaderCpu.useMain();
+        
+        int posLoc = toonShaderCpu.getPositionLocation();
+        int norLoc = toonShaderCpu.getNormalLocation();
+        int uvLoc = toonShaderCpu.getUv0Location();
+        
+        // 设置顶点属性
+        if (posLoc != -1) {
+            GL46C.glEnableVertexAttribArray(posLoc);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, vertexBufferObject);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, posBuffer, GL46C.GL_DYNAMIC_DRAW);
+            GL46C.glVertexAttribPointer(posLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
+        }
+        if (norLoc != -1) {
+            GL46C.glEnableVertexAttribArray(norLoc);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, normalBufferObject);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, norBuffer, GL46C.GL_DYNAMIC_DRAW);
+            GL46C.glVertexAttribPointer(norLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
+        }
+        if (uvLoc != -1) {
+            GL46C.glEnableVertexAttribArray(uvLoc);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, texcoordBufferObject);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv0Buffer, GL46C.GL_DYNAMIC_DRAW);
+            GL46C.glVertexAttribPointer(uvLoc, 2, GL46C.GL_FLOAT, false, 0, 0);
+        }
+        
+        toonShaderCpu.setProjectionMatrix(projMatBuff);
+        toonShaderCpu.setModelViewMatrix(modelViewMatBuff);
+        toonShaderCpu.setSampler0(0);
+        toonShaderCpu.setLightIntensity(lightIntensity);
+        toonShaderCpu.setToonLevels(toonConfig.getToonLevels());
+        toonShaderCpu.setRimLight(toonConfig.getRimPower(), toonConfig.getRimIntensity());
+        toonShaderCpu.setShadowColor(
+            toonConfig.getShadowColorR(),
+            toonConfig.getShadowColorG(),
+            toonConfig.getShadowColorB()
+        );
+        toonShaderCpu.setSpecular(toonConfig.getSpecularPower(), toonConfig.getSpecularIntensity());
+        
+        // 绘制所有子网格
+        RenderSystem.activeTexture(GL46C.GL_TEXTURE0);
+        long subMeshCount = nf.GetSubMeshCount(model);
+        for (long i = 0; i < subMeshCount; ++i) {
+            int materialID = nf.GetSubMeshMaterialID(model, i);
+            if (!nf.IsMaterialVisible(model, materialID)) continue;
+            
+            float alpha = nf.GetMaterialAlpha(model, materialID);
+            if (alpha == 0.0f) continue;
+            
+            if (nf.GetMaterialBothFace(model, materialID)) {
+                RenderSystem.disableCull();
+            } else {
+                RenderSystem.enableCull();
+            }
+            
+            if (mats[materialID].tex == 0) {
+                MCinstance.getEntityRenderDispatcher().textureManager.bindForSetup(TextureManager.INTENTIONAL_MISSING_TEXTURE);
+            } else {
+                GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, mats[materialID].tex);
+            }
+            
+            long startPos = (long) nf.GetSubMeshBeginIndex(model, i) * indexElementSize;
+            int count = nf.GetSubMeshVertexCount(model, i);
+            
+            RenderSystem.assertOnRenderThread();
+            GL46C.glDrawElements(GL46C.GL_TRIANGLES, count, indexType, startPos);
+        }
+        
+        // 清理顶点属性
+        if (posLoc != -1) GL46C.glDisableVertexAttribArray(posLoc);
+        if (norLoc != -1) GL46C.glDisableVertexAttribArray(norLoc);
+        if (uvLoc != -1) GL46C.glDisableVertexAttribArray(uvLoc);
+        
+        // 解绑缓冲区和 VAO
+        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, 0);
+        GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, 0);
+        GL46C.glBindVertexArray(0);
+        
+        // 恢复默认着色器
+        GL46C.glUseProgram(0);
+        RenderSystem.activeTexture(GL46C.GL_TEXTURE0);
         BufferUploader.reset();
     }
 

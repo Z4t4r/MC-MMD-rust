@@ -1,0 +1,363 @@
+# Design: [变更名称]
+
+## Context
+
+### 背景
+
+[描述导致此设计变更的背景和上下文]
+
+### 现状
+
+[描述当前实现的情况]
+
+### 约束
+
+[技术约束、业务约束或平台约束]
+- [约束1]
+- [约束2]
+- [约束3]
+
+### 利益相关者
+
+[受此设计影响的人员或系统]
+- [利益相关者1]
+- [利益相关者2]
+
+## Goals / Non-Goals
+
+### Goals
+
+[此设计要实现的目标]
+- [目标1]
+- [目标2]
+- [目标3]
+
+### Non-Goals
+
+[明确不在此次设计范围内的事项]
+- [非目标1]
+- [非目标2]
+- [非目标3]
+
+## Decisions
+
+### 决策 1: [决策标题]
+
+**选择**: [选择的方案]
+
+**理由**:
+- [理由1]
+- [理由2]
+
+**关键内容**:
+```
+[代码示例或配置示例]
+```
+
+**替代方案**:
+- **方案 A**: [描述] - [优缺点]
+- **方案 B**: [描述] - [优缺点]
+- **选择理由**: [为何选择当前方案]
+
+### 决策 2: [决策标题]
+
+**选择**: [选择的方案]
+
+**理由**:
+- [理由1]
+- [理由2]
+
+**替代方案**:
+- **方案 A**: [描述] - [为何不选]
+
+### 决策 3: [决策标题]
+
+...
+
+## UI/UX Design
+
+### 用户界面变更 (如果适用)
+
+#### 界面布局
+
+```ascii
+[ASCII 模拟图]
+
+示例:
++------------------------------------------+
+| MMD 模型查看器                           |
++------------------------------------------+
+| [模型预览区域]                           |
+|                                          |
+|                                          |
++------------------------------------------+
+| 控制面板:                                |
+| [播放] [暂停] [停止] 速度: [===|===]     |
+| 物理: [启用]  IK: [启用]                |
++------------------------------------------+
+```
+
+#### 交互流程
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant 用户
+    participant UI
+    participant Rust引擎
+    participant Minecraft
+
+    用户->>UI: 执行操作
+    UI->>Rust引擎: JNI 调用
+    Rust引擎-->>UI: 返回结果
+    UI->>Minecraft: 更新渲染
+    Minecraft-->>用户: 显示更新
+```
+
+#### 状态转换
+
+```mermaid
+stateDiagram-v2
+    [*] --> 未加载
+    未加载 --> 加载中: 用户选择模型
+    加载中 --> 已加载: 加载成功
+    加载中 --> 错误: 加载失败
+    已加载 --> 播放中: 用户点击播放
+    播放中 --> 已暂停: 用户点击暂停
+    已暂停 --> 播放中: 用户点击播放
+    播放中 --> 已加载: 动画结束
+    错误 --> 未加载: 用户重试
+```
+
+#### 错误处理 UI
+
+[描述错误状态的显示和用户恢复方式]
+
+## Technical Design
+
+### 系统架构
+
+```mermaid
+flowchart TD
+    subgraph "Minecraft 游戏层"
+        A[Mod 主入口] --> B[模型管理器]
+        B --> C[渲染器]
+    end
+
+    subgraph "JNI 边界"
+        C --> D[JNI 桥接]
+    end
+
+    subgraph "Rust 引擎层"
+        D --> E[动画系统]
+        D --> F[物理引擎]
+        D --> G[骨骼系统]
+    end
+
+    subgraph "第三方库"
+        F --> H[Rapier3D]
+    end
+```
+
+### 数据流设计
+
+```mermaid
+flowchart LR
+    A[PMX 文件] --> B[Rust 解析器]
+    B --> C[模型数据结构]
+    C --> D[JNI 序列化]
+    D --> E[Java 模型对象]
+    E --> F[渲染器]
+
+    style D fill:#f99,stroke:#f00,stroke-width:2px
+```
+
+**JNI 数据传输优化**:
+- 批量传输: [描述批量传输策略]
+- 内存布局: [描述数据结构布局]
+- 同步机制: [描述线程同步方式]
+
+### 组件关系
+
+```mermaid
+classDiagram
+    class Model {
+        +Vec~Bone~ bones
+        +Vec~Mesh~ meshes
+        +load(path)
+        +update(dt)
+    }
+
+    class Bone {
+        +Transform local
+        +Transform world
+        +update()
+    }
+
+    class PhysicsEngine {
+        +RigidBody[] bodies
+        +Joint[] joints
+        +step(dt)
+    }
+
+    Model "1" --> "*" Bone
+    Model "1" --> "1" PhysicsEngine
+```
+
+### API 设计
+
+#### Rust API
+
+```rust
+// [核心 trait 定义]
+pub trait MMDModel {
+    fn load(path: &Path) -> Result<Self>;
+    fn update(&mut self, dt: f32);
+    fn get_bone_transform(&self, index: usize) -> Transform;
+}
+
+// [JNI 暴露函数]
+#[no_mangle]
+pub extern "system" fn Java_..._loadModel(
+    env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) -> jlong {
+    // 实现
+}
+```
+
+#### Java API
+
+```java
+package com.example.mmd;
+
+public class MMDModel {
+    private long nativeHandle;
+
+    public static MMDModel load(String path) throws MMDException {
+        // 实现
+    }
+
+    public native void update(float deltaTime);
+    public native Transform getBoneTransform(int index);
+}
+```
+
+### 性能考虑
+
+| 组件 | 性能目标 | 优化策略 |
+|------|----------|----------|
+| JNI 调用 | < 1ms | 批量传输 |
+| 物理模拟 | < 5ms | 固定时间步 |
+ | 蒙皮计算 | GPU 加速 | Compute Shader |
+| IK 求解 | < 2ms | 限制迭代次数 |
+
+### 错误处理
+
+```mermaid
+flowchart TD
+    A[操作开始] --> B{检查前置条件}
+    B -->|失败| C[返回参数错误]
+    B -->|成功| D[执行操作]
+    D --> E{操作结果}
+    E -->|失败| F[记录错误日志]
+    F --> G[返回操作错误]
+    E -->|成功| H[返回成功结果]
+```
+
+**错误类型定义**:
+```rust
+#[derive(thiserror::Error, Debug)]
+pub enum MMDError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Parse error: {0}")]
+    Parse(String),
+
+    #[error("Invalid parameter: {0}")]
+    InvalidParameter(String),
+}
+```
+
+## Risks / Trade-offs
+
+### 风险 1: [风险标题]
+
+**描述**: [详细描述风险]
+
+**影响**: 高/中/低
+
+**缓解措施**:
+- [缓解方案1]
+- [缓解方案2]
+
+### 权衡 1: [权衡标题]
+
+**选择**: [选择的方案]
+
+**理由**: [为何做出此选择]
+
+**代价**: [接受何种代价]
+
+## Migration Plan
+
+### 迁移步骤
+
+1. **阶段 1**: [步骤描述]
+   - [具体任务]
+   - [验证方法]
+
+2. **阶段 2**: [步骤描述]
+   - [具体任务]
+   - [验证方法]
+
+3. **阶段 3**: [步骤描述]
+   - [具体任务]
+   - [验证方法]
+
+### 回滚计划
+
+[如果迁移失败如何回滚]
+- [回滚步骤1]
+- [回滚步骤2]
+- [数据恢复方法]
+
+## Testing Strategy
+
+### 单元测试
+
+- [测试范围1]
+- [测试范围2]
+
+### 集成测试
+
+- [测试场景1]
+- [测试场景2]
+
+### 性能测试
+
+- [基准测试内容]
+- [性能目标]
+
+### 兼容性测试
+
+- [测试平台]
+- [测试 Minecraft 版本]
+
+## Open Questions
+
+1. **[问题1]**
+   - 待定: [需要确认的内容]
+   - 影响: [对设计的影响]
+   - 截止日期: [需要回答的时间]
+
+2. **[问题2]**
+   - ...
+
+## References
+
+- [参考文档1]
+- [参考项目2]
+- [相关规范链接]

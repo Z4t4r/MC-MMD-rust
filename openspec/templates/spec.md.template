@@ -1,0 +1,206 @@
+# 规范: [能力名称]
+
+## Overview
+
+[简述此规范涵盖的能力范围]
+
+## ADDED Requirements
+
+### Requirement: [需求名称]
+
+The system SHALL [系统必须实现的功能].
+
+#### Scenario: [场景名称]
+
+- **GIVEN** [前置条件]
+- **WHEN** [触发操作]
+- **THEN** [预期结果]
+
+#### Scenario: [另一种场景]
+
+- **GIVEN** [前置条件]
+- **WHEN** [触发操作]
+- **THEN** [预期结果]
+
+---
+
+### Requirement: [另一个需求名称]
+
+The system MUST [系统必须实现的功能].
+
+#### Scenario: [成功场景]
+
+- **GIVEN** [前置条件]
+- **WHEN** [触发操作]
+- **THEN** [预期结果]
+
+#### Scenario: [失败场景]
+
+- **GIVEN** [前置条件]
+- **WHEN** [触发操作]
+- **THEN** [预期结果]
+
+## MODIFIED Requirements
+
+### Requirement: [现有需求名称]
+
+[完整的更新后需求描述]
+
+#### Scenario: [现有场景]
+
+- **GIVEN** [前置条件]
+- **WHEN** [触发操作]
+- **THEN** [预期结果]
+
+#### Scenario: [新增场景]
+
+- **GIVEN** [前置条件]
+- **WHEN** [触发操作]
+- **THEN** [预期结果]
+
+## REMOVED Requirements
+
+### Requirement: [被移除的需求名称]
+
+**Reason**: [移除原因]
+
+**Migration**: [迁移指南]
+
+---
+
+## MMD/物理模拟特定示例
+
+### Requirement: PMX 模型加载
+
+The system SHALL load PMX format models (version 2.0/2.1) and expose bone hierarchy, mesh data, and physics bodies to the rendering layer.
+
+#### Scenario: 成功加载标准 PMX 模型
+
+- **GIVEN** 一个有效的 PMX 2.0 模型文件
+- **WHEN** 系统调用 `loadModel` 函数
+- **THEN** 系统返回有效的模型句柄
+- **AND** 所有骨骼被正确解析
+- **AND** 所有材质和纹理被加载
+- **AND** 物理刚体和关节被初始化
+
+#### Scenario: 加载不支持的 PMX 版本
+
+- **GIVEN** 一个 PMX 2.1 模型文件
+- **WHEN** 系统调用 `loadModel` 函数
+- **THEN** 系统返回 `Err(UnsupportedVersion)`
+- **AND** 提供详细的错误信息
+
+#### Scenario: 加载损坏的模型文件
+
+- **GIVEN** 一个损坏的 PMX 文件
+- **WHEN** 系统调用 `loadModel` 函数
+- **THEN** 系统返回 `Err(ParseError)`
+- **AND** 日志记录解析失败的位置
+
+---
+
+### Requirement: VMD 动画播放
+
+The system SHALL play VMD animations with proper bone transformation interpolation and morph weight blending.
+
+#### Scenario: 播放单个 VMD 动画
+
+- **GIVEN** 一个已加载的模型和 VMD 动画文件
+- **WHEN** 系统调用 `playAnimation` 函数
+- **THEN** 骨骼变换按照动画关键帧更新
+- **AND** 表情变形权重随时间变化
+- **AND** 插值曲线被正确应用
+
+#### Scenario: 混合多个动画
+
+- **GIVEN** 一个已加载的模型和两个 VMD 动画
+- **WHEN** 系统同时播放两个动画
+- **THEN** 骨骼变换按照混合权重计算
+- **AND** 最终结果符合预期的混合效果
+
+---
+
+### Requirement: 物理模拟
+
+The system SHALL simulate rigid body physics using Rapier3D with at least 60 Hz update rate.
+
+#### Scenario: 头发物理模拟
+
+- **GIVEN** 一个带有头发刚体的模型
+- **WHEN** 物理模拟步进
+- **THEN** 头发刚体响应重力和碰撞
+- **AND** 物理步进时间 < 5ms (60 FPS)
+- **AND** 物理状态稳定（无爆炸或穿透）
+
+#### Scenario: IK 约束
+
+- **GIVEN** 一个带有 IK 链的模型
+- **WHEN** IK 目标位置更新
+- **THEN** IK 链骨骼位置正确调整
+- **AND** 角度限制被遵守
+
+---
+
+### Requirement: JNI 接口
+
+The system SHALL provide JNI bindings for Java interop with efficient data transfer.
+
+#### Scenario: 批量获取骨骼变换
+
+- **GIVEN** 一个已加载的模型句柄
+- **WHEN** Java 端调用 `getBoneTransforms`
+- **THEN** 系统一次性返回所有骨骼的变换数据
+- **AND** JNI 调用时间 < 1ms
+- **AND** 数据格式为 `float[]` (每骨骼 8 个 float)
+
+#### Scenario: 内存安全
+
+- **GIVEN** 一个已加载的模型句柄
+- **WHEN** Java 端调用 `releaseModel`
+- **THEN** Rust 端正确释放内存
+- **AND** 后续使用该句柄返回错误
+
+---
+
+## 渲染特定示例
+
+### Requirement: Compute Shader 蒙皮
+
+The system SHALL perform vertex skinning using GPU compute shaders with support for up to 4 bone weights per vertex.
+
+#### Scenario: 标准 GPU 蒙皮
+
+- **GIVEN** 一个带有骨骼权重的模型
+- **WHEN** 渲染器调用 compute shader
+- **THEN** 顶点位置被正确蒙皮
+- **AND** 性能目标 > 100k vertices/frame
+- **AND** 视觉结果与 CPU 蒙皮一致
+
+#### Scenario: 超过骨骼数限制
+
+- **GIVEN** 一个骨骼数 > 255 的模型
+- **WHEN** 渲染器尝试蒙皮
+- **THEN** 系统正确处理骨骼索引
+- **AND** 或回退到 CPU 蒙皮
+
+---
+
+## 非 MMD 特定示例
+
+### Requirement: 错误处理
+
+The system SHALL provide detailed error information for all failure scenarios.
+
+#### Scenario: JNI 异常传播
+
+- **GIVEN** Rust 端发生错误
+- **WHEN** JNI 函数被调用
+- **THEN** 错误被转换为 Java 异常
+- **AND** 异常包含详细的错误信息
+
+#### Scenario: 资源加载失败
+
+- **GIVEN** 一个不存在的文件路径
+- **WHEN** 系统尝试加载资源
+- **THEN** 返回清晰的错误消息
+- **AND** 错误消息包含文件路径和原因

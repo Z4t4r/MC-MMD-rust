@@ -13,3 +13,15 @@ sourceSets {
         // 无特殊排除设置
     }
 }
+
+// 将 Mixin AP 生成的 refmap 重命名为 mixin 配置中声明的文件名，避免运行时 "No refMap loaded"
+tasks.named('compileJava') {
+    doLast {
+        def dir = destinationDirectory.get().asFile
+        def wrong = new File(dir, '3d-skin-common-common-refmap.json')
+        def correct = new File(dir, 'skinlayers3d-common-refmap.json')
+        if (wrong.exists()) {
+            wrong.renameTo(correct)
+        }
+    }
+}

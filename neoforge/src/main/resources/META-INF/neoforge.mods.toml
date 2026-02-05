@@ -1,0 +1,33 @@
+# NeoForge Mods.toml 配置文件
+modLoader = "neoforge"
+loaderVersion = "[47.1,)"
+license = "MIT"
+
+[[mods]]
+modId = "mmdskin"
+version = "${mod_version}"
+displayName = "3D Skin Layers"
+authors = "shiroha233, kjkjkAIStudio(原作者), asuka-mio, Gengorou-C"
+description = '''A mod that replaces Minecraft entity rendering with MMD models'''
+logoFile = "icon.png"
+
+[[dependencies.mmdskin]]
+modId = "neoforge"
+mandatory = true
+versionRange = "[47.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.mmdskin]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.21)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.mmdskin]]
+modId = "cloth_config"
+mandatory = true
+versionRange = "*"
+ordering = "NONE"
+side = "CLIENT"

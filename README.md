@@ -22,7 +22,7 @@
    - 物理模拟（Rapier3D）
    - JNI 绑定用于 Java 交互
 
-2. **Minecraft Mod**（Fabric/Forge）: 基于 Java 的渲染和集成
+2. **Minecraft Mod**（Fabric/Forge/NeoForge）: 基于 Java 的渲染和集成
    - OpenGL 模型渲染
    - Compute Shader 蒙皮
    - Iris 光影兼容
@@ -199,8 +199,27 @@ cargo build --release
 ### 构建 Minecraft Mod
 
 ```bash
+# 构建所有平台（Fabric + Forge + NeoForge）
 ./gradlew build
+
+# 仅构建特定平台
+./gradlew :fabric:build
+./gradlew :forge:build
+./gradlew :neoforge:build
+
+# 运行客户端（用于测试）
+./gradlew :fabric:runClient
+./gradlew :forge:runClient
+./gradlew :neoforge:runClient
 ```
+
+### 支持的平台
+
+| 平台 | 版本要求 | 文件名 |
+|------|---------|--------|
+| Fabric | Fabric 0.15.11+ / Minecraft 1.20.1 | `mmdskin-fabric-{version}.jar` |
+| Forge | Forge 47.3.0+ / Minecraft 1.20.1 | `mmdskin-forge-{version}.jar` |
+| NeoForge | NeoForge 47.1.81+ / Minecraft 1.20.1 | `mmdskin-neoforge-{version}.jar` |
 
 ## 许可证
 

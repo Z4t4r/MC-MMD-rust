@@ -1,0 +1,144 @@
+package com.shiroha.mmdskin.neoforge.config;
+
+import com.shiroha.mmdskin.config.ConfigData;
+import com.shiroha.mmdskin.config.ConfigManager;
+import net.neoforged.fml.loading.FMLPaths;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.nio.file.Path;
+
+/**
+ * NeoForge 配置实现
+ * 使用 JSON 格式，配置文件位于 config/MmdSkin/config.json
+ * 与 Fabric 和 Forge 使用相同的配置格式
+ */
+public final class MmdSkinConfig implements ConfigManager.IConfigProvider {
+    private static final Logger logger = LogManager.getLogger();
+    private static MmdSkinConfig instance;
+    private static ConfigData data;
+    private static Path configPath;
+
+    private MmdSkinConfig() {
+        configPath = FMLPaths.CONFIGDIR.get().resolve("MmdSkin");
+        data = ConfigData.load(configPath);
+    }
+
+    public static void init() {
+        instance = new MmdSkinConfig();
+        ConfigManager.init(instance);
+        logger.info("NeoForge 配置系统初始化完成 (JSON)");
+    }
+
+    /** 获取配置数据（供 UI 使用） */
+    public static ConfigData getData() {
+        return data;
+    }
+
+    /** 保存配置 */
+    public static void save() {
+        data.save(configPath);
+    }
+
+    // ==================== IConfigProvider 实现 ====================
+
+    @Override
+    public boolean isOpenGLLightingEnabled() {
+        return data.openGLEnableLighting;
+    }
+
+    @Override
+    public int getModelPoolMaxCount() {
+        return data.modelPoolMaxCount;
+    }
+
+    @Override
+    public boolean isMMDShaderEnabled() {
+        return data.mmdShaderEnabled;
+    }
+
+    @Override
+    public boolean isGpuSkinningEnabled() {
+        return data.gpuSkinningEnabled;
+    }
+
+    @Override
+    public boolean isGpuMorphEnabled() {
+        return data.gpuMorphEnabled;
+    }
+
+    @Override
+    public boolean isToonRenderingEnabled() {
+        return data.toonRenderingEnabled;
+    }
+
+    @Override
+    public int getToonLevels() {
+        return data.toonLevels;
+    }
+
+    @Override
+    public boolean isToonOutlineEnabled() {
+        return data.toonOutlineEnabled;
+    }
+
+    @Override
+    public float getToonOutlineWidth() {
+        return data.toonOutlineWidth;
+    }
+
+    @Override
+    public float getToonRimPower() {
+        return data.toonRimPower;
+    }
+
+    @Override
+    public float getToonRimIntensity() {
+        return data.toonRimIntensity;
+    }
+
+    @Override
+    public float getToonShadowR() {
+        return data.toonShadowR;
+    }
+
+    @Override
+    public float getToonShadowG() {
+        return data.toonShadowG;
+    }
+
+    @Override
+    public float getToonShadowB() {
+        return data.toonShadowB;
+    }
+
+    @Override
+    public float getToonSpecularPower() {
+        return data.toonSpecularPower;
+    }
+
+    @Override
+    public float getToonSpecularIntensity() {
+        return data.toonSpecularIntensity;
+    }
+
+    @Override
+    public float getToonOutlineR() {
+        return data.toonOutlineR;
+    }
+
+    @Override
+    public float getToonOutlineG() {
+        return data.toonOutlineG;
+    }
+
+    @Override
+    public float getToonOutlineB() {
+        return data.toonOutlineB;
+    }
+
+    @Override
+    public int getMaxBones() {
+        return data.maxBones;
+    }
+}

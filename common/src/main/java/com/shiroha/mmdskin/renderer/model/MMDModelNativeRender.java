@@ -59,8 +59,7 @@ public class MMDModelNativeRender implements IMMDModel {
     
     // 时间追踪
     private long lastUpdateTime = -1;
-    private static final float MAX_DELTA_TIME = 0.05f;
-    private static final float MIN_DELTA_TIME = 0.001f;
+    private static final float MAX_DELTA_TIME = 0.05f; // 最大 50ms，防止暂停后跳跃
     
     MMDModelNativeRender() {}
     
@@ -225,7 +224,12 @@ public class MMDModelNativeRender implements IMMDModel {
         
         float deltaTime = (currentTime - lastUpdateTime) / 1000.0f;
         lastUpdateTime = currentTime;
-        deltaTime = Mth.clamp(deltaTime, MIN_DELTA_TIME, MAX_DELTA_TIME);
+        
+        // 限制 deltaTime 上限，防止暂停后物理爆炸
+        // 注意：不设下限，避免高帧率下动画加速
+        if (deltaTime > MAX_DELTA_TIME) {
+            deltaTime = MAX_DELTA_TIME;
+        }
         
         // Rust 引擎更新动画和蒙皮
         nf.UpdateModel(model, deltaTime);

@@ -30,7 +30,7 @@ public class ConfigData {
     public int maxBones = 2048;
     
     // Toon 渲染（3渲2）
-    public boolean toonRenderingEnabled = true;
+    public boolean toonRenderingEnabled = false;
     public int toonLevels = 3;
     public float toonRimPower = 5.0f;
     public float toonRimIntensity = 0.1f;

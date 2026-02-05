@@ -45,12 +45,27 @@ public class MmdSkinClient {
     }
     
     /**
-     * 确保 EntityPlayer 目录结构存在
+     * 确保所有必需的目录结构存在
      */
     private static void ensureEntityPlayerDirectory() {
         File entityPlayerDir = PathConstants.getEntityPlayerDir();
         if (PathConstants.ensureDirectoryExists(entityPlayerDir)) {
             logger.info("创建 EntityPlayer 模型目录: " + entityPlayerDir.getAbsolutePath());
+        }
+        
+        File customAnimDir = PathConstants.getCustomAnimDir();
+        if (PathConstants.ensureDirectoryExists(customAnimDir)) {
+            logger.info("创建 CustomAnim 目录: " + customAnimDir.getAbsolutePath());
+        }
+        
+        File customMorphDir = PathConstants.getCustomMorphDir();
+        if (PathConstants.ensureDirectoryExists(customMorphDir)) {
+            logger.info("创建 CustomMorph 目录: " + customMorphDir.getAbsolutePath());
+        }
+        
+        File defaultMorphDir = PathConstants.getDefaultMorphDir();
+        if (PathConstants.ensureDirectoryExists(defaultMorphDir)) {
+            logger.info("创建 DefaultMorph 目录: " + defaultMorphDir.getAbsolutePath());
         }
     }
     

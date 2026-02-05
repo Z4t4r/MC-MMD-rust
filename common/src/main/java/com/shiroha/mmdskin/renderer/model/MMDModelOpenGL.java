@@ -91,7 +91,6 @@ public class MMDModelOpenGL implements IMMDModel {
     // 时间追踪（用于计算 deltaTime）
     private long lastUpdateTime = -1; // -1 表示未初始化
     private static final float MAX_DELTA_TIME = 0.05f; // 最大 50ms，防止暂停后跳跃
-    private static final float MIN_DELTA_TIME = 0.001f; // 最小 1ms，防止除零
     
     private FloatBuffer modelViewMatBuff;          // 预分配的矩阵缓冲区
     private FloatBuffer projMatBuff;
@@ -362,10 +361,9 @@ public class MMDModelOpenGL implements IMMDModel {
         float deltaTime = (currentTime - lastUpdateTime) / 1000.0f;
         lastUpdateTime = currentTime;
         
-        // 限制 deltaTime 范围，防止物理爆炸
-        if (deltaTime < MIN_DELTA_TIME) {
-            deltaTime = MIN_DELTA_TIME;
-        } else if (deltaTime > MAX_DELTA_TIME) {
+        // 限制 deltaTime 上限，防止暂停后物理爆炸
+        // 注意：不设下限，避免高帧率下动画加速
+        if (deltaTime > MAX_DELTA_TIME) {
             deltaTime = MAX_DELTA_TIME;
         }
         

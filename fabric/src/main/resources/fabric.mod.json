@@ -3,7 +3,7 @@
 	"id": "mmdskin",
 	"version": "${version}",
 	"name": "MMD Skin",
-	"description": "使用MMD模型替换Minecraft实体渲染的模组",
+	"description": "A mod that replaces Minecraft entity rendering with MMD models",
 	"authors": [
 		"shiroha233",
 		"kjkjkAIStudio(原作者)",
@@ -15,7 +15,7 @@
 		"sources": "https://github.com/shiroha233/3d-skin-layers"
 	},
 	"license": "MIT",
-	"icon": "assets/mmdskin/icon.png",
+	"icon": "icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [

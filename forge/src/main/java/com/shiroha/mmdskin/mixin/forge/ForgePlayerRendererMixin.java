@@ -4,12 +4,12 @@ import com.shiroha.mmdskin.MmdSkinClient;
 import com.shiroha.mmdskin.renderer.animation.AnimationStateManager;
 import com.shiroha.mmdskin.renderer.render.ItemRenderHelper;
 import com.shiroha.mmdskin.renderer.render.InventoryRenderHelper;
+import com.shiroha.mmdskin.ui.PlayerModelSyncManager;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
 import com.shiroha.mmdskin.renderer.core.RenderContext;
 import com.shiroha.mmdskin.renderer.core.RenderParams;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager.ModelWithEntityData;
-import com.shiroha.mmdskin.ui.ModelSelectorConfig;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.model.PlayerModel;
@@ -50,12 +50,14 @@ public abstract class ForgePlayerRendererMixin extends LivingEntityRenderer<Abst
     @Inject(method = "render", at = @At("HEAD"), cancellable = true)
     public void onRender(AbstractClientPlayer player, float entityYaw, float tickDelta, PoseStack matrixStack, 
                       MultiBufferSource vertexConsumers, int packedLight, CallbackInfo ci) {
-        // 获取玩家选择的模型
+        // 获取玩家选择的模型（使用同步管理器，支持联机）
         String playerName = player.getName().getString();
-        String selectedModel = ModelSelectorConfig.getInstance().getPlayerModel(playerName);
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        boolean isLocalPlayer = mc.player != null && mc.player.getUUID().equals(player.getUUID());
+        String selectedModel = PlayerModelSyncManager.getPlayerModel(player.getUUID(), playerName, isLocalPlayer);
         
-        // 如果选择了默认渲染，使用原版渲染
-        if (selectedModel.equals("默认 (原版渲染)") || selectedModel.isEmpty()) {
+        // 如果选择了默认渲染或未选择模型，使用原版渲染
+        if (selectedModel == null || selectedModel.isEmpty() || selectedModel.equals("默认 (原版渲染)")) {
             super.render(player, entityYaw, tickDelta, matrixStack, vertexConsumers, packedLight);
             return;
         }

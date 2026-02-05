@@ -161,6 +161,12 @@ public class ModelSelectorConfig {
         data.playerModels.put(playerName, modelName);
         save();
         logger.info("玩家 {} 选择模型: {}", playerName, modelName);
+        
+        // 广播到服务器（联机同步）
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        if (mc.player != null && mc.player.getName().getString().equals(playerName)) {
+            PlayerModelSyncManager.broadcastLocalModelSelection(mc.player.getUUID(), modelName);
+        }
     }
     
     /**

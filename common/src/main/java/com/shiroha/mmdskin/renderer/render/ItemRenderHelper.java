@@ -37,6 +37,8 @@ public class ItemRenderHelper {
         
         // 基础旋转：剑朝前（原始状态朝上，绕X轴旋转90度使其朝前）
         matrixStack.mulPose(new Quaternionf().rotateX(90.0f * ((float)Math.PI / 180F)));
+        // 翻转物品（修正弓等物品反向问题）
+        matrixStack.mulPose(new Quaternionf().rotateY(180.0f * ((float)Math.PI / 180F)));
         
         // 可配置的额外旋转
         float rotationX = getItemRotation(player, model, InteractionHand.MAIN_HAND, "x");
@@ -68,6 +70,8 @@ public class ItemRenderHelper {
         
         // 基础旋转：剑朝前（原始状态朝上，绕X轴旋转90度使其朝前）
         matrixStack.mulPose(new Quaternionf().rotateX(90.0f * ((float)Math.PI / 180F)));
+        // 翻转物品（修正弓等物品反向问题）
+        matrixStack.mulPose(new Quaternionf().rotateY(180.0f * ((float)Math.PI / 180F)));
         
         // 可配置的额外旋转
         float rotationX = getItemRotation(player, model, InteractionHand.OFF_HAND, "x");

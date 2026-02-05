@@ -6,6 +6,7 @@ import java.util.function.Supplier;
 import com.shiroha.mmdskin.forge.register.MmdSkinRegisterCommon;
 import com.shiroha.mmdskin.maid.MaidMMDModelManager;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
+import com.shiroha.mmdskin.ui.PlayerModelSyncManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.entity.Entity;
@@ -68,12 +69,13 @@ public class MmdSkinNetworkPack {
         playerUUID = new UUID(buffer.readLong(), buffer.readLong());
         
         // 根据 opCode 决定读取字符串还是整数
-        if (opCode == 1) {
-            animId = buffer.readUtf(); // 动作执行，读取字符串
+        if (opCode == 1 || opCode == 3) {
+            // opCode 1: 动作执行, opCode 3: 模型选择同步
+            animId = buffer.readUtf();
             arg0 = 0;
-        } else if (opCode == 4) {
-            arg0 = buffer.readInt();   // 女仆模型变更，读取 entityId
-            animId = buffer.readUtf(); // 读取 modelName
+        } else if (opCode == 4 || opCode == 5) {
+            arg0 = buffer.readInt();   // 女仆模型/动作变更，读取 entityId
+            animId = buffer.readUtf(); // 读取 modelName/animId
         } else {
             animId = "";
             arg0 = buffer.readInt(); // 其他操作，读取整数
@@ -89,11 +91,12 @@ public class MmdSkinNetworkPack {
         buffer.writeLong(playerUUID.getLeastSignificantBits());
         
         // 根据 opCode 决定写入字符串还是整数
-        if (opCode == 1) {
-            buffer.writeUtf(animId); // 动作执行，写入字符串
-        } else if (opCode == 4) {
-            buffer.writeInt(arg0);   // 女仆模型变更，写入 entityId
-            buffer.writeUtf(animId); // 写入 modelName
+        if (opCode == 1 || opCode == 3) {
+            // opCode 1: 动作执行, opCode 3: 模型选择同步
+            buffer.writeUtf(animId);
+        } else if (opCode == 4 || opCode == 5) {
+            buffer.writeInt(arg0);   // 女仆模型/动作变更，写入 entityId
+            buffer.writeUtf(animId); // 写入 modelName/animId
         } else {
             buffer.writeInt(arg0); // 其他操作，写入整数
         }
@@ -135,6 +138,11 @@ public class MmdSkinNetworkPack {
                 MmdSkinRendererPlayerHelper.CustomAnim(target, animId);
                 break;
             }
+            case 3: {
+                // 模型选择同步
+                PlayerModelSyncManager.onRemotePlayerModelReceived(playerUUID, animId);
+                break;
+            }
             case 2: {
                 // 重置物理
                 MmdSkinRendererPlayerHelper.ResetPhysics(target);
@@ -145,6 +153,14 @@ public class MmdSkinNetworkPack {
                 Entity maidEntity = MCinstance.level.getEntity(arg0);
                 if (maidEntity != null) {
                     MaidMMDModelManager.bindModel(maidEntity.getUUID(), animId);
+                }
+                break;
+            }
+            case 5: {
+                // 女仆动作变更
+                Entity maidEntity = MCinstance.level.getEntity(arg0);
+                if (maidEntity != null) {
+                    MaidMMDModelManager.playAnimation(maidEntity.getUUID(), animId);
                 }
                 break;
             }

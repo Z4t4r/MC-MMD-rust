@@ -9,10 +9,6 @@ import net.fabricmc.api.ClientModInitializer;
 
 /**
  * Fabric 客户端初始化
- * 
- * 重构说明：
- * - 初始化统一配置管理器
- * - 使用 ConfigManager 访问配置
  */
 public class MmdSkinFabricClient implements ClientModInitializer {
     @Override

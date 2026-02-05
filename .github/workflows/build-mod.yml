@@ -1,16 +1,19 @@
-name: Build Native Libraries
+name: Build & Release
 
 on:
   push:
     tags:
-      - 'Rust-*'
+      - 'v*'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-windows:
+  # ==================== Rust 原生库构建 ====================
+  build-rust-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +21,7 @@ jobs:
           submodules: recursive
       
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
       
       - name: Build Windows DLL
         run: cargo build --release --manifest-path rust_engine/Cargo.toml
@@ -29,7 +32,7 @@ jobs:
           name: mmd_engine-windows
           path: rust_engine/target/release/mmd_engine.dll
 
-  build-linux:
+  build-rust-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +40,7 @@ jobs:
           submodules: recursive
       
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
       
       - name: Build Linux SO
         run: cargo build --release --manifest-path rust_engine/Cargo.toml
@@ -48,7 +51,7 @@ jobs:
           name: mmd_engine-linux
           path: rust_engine/target/release/libmmd_engine.so
 
-  build-macos:
+  build-rust-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +59,7 @@ jobs:
           submodules: recursive
       
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
       
       - name: Build macOS dylib (x86_64)
         run: |
@@ -81,10 +84,54 @@ jobs:
           name: mmd_engine-macos
           path: libmmd_engine.dylib
 
-  release:
-    needs: [build-windows, build-linux, build-macos]
+  # ==================== Java 模组构建 ====================
+  build-java:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+      
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      
+      - name: Build with Gradle
+        run: ./gradlew build --no-daemon -x test
+      
+      - name: Upload Fabric Mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmdskin-fabric
+          path: |
+            fabric/build/libs/mmdskin-fabric-*.jar
+            !fabric/build/libs/*-dev*.jar
+            !fabric/build/libs/*-sources*.jar
+          if-no-files-found: error
+      
+      - name: Upload Forge Mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmdskin-forge
+          path: |
+            forge/build/libs/mmdskin-forge-*.jar
+            !forge/build/libs/*-dev*.jar
+            !forge/build/libs/*-sources*.jar
+          if-no-files-found: error
+
+  # ==================== 统一发布 ====================
+  release:
+    needs: [build-rust-windows, build-rust-linux, build-rust-macos, build-java]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
@@ -97,6 +144,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
+            artifacts/mmdskin-fabric/*.jar
+            artifacts/mmdskin-forge/*.jar
             artifacts/mmd_engine-windows/mmd_engine.dll
             artifacts/mmd_engine-linux/libmmd_engine.so
             artifacts/mmd_engine-macos/libmmd_engine.dylib

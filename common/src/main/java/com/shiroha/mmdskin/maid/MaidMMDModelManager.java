@@ -126,6 +126,29 @@ public class MaidMMDModelManager {
     }
     
     /**
+     * 为女仆播放自定义动画
+     * 
+     * @param maidUUID 女仆 UUID
+     * @param animId 动画 ID（文件名）
+     */
+    public static void playAnimation(UUID maidUUID, String animId) {
+        MMDModelManager.Model model = getModel(maidUUID);
+        if (model == null) {
+            logger.warn("女仆 {} 没有绑定模型，无法播放动画", maidUUID);
+            return;
+        }
+        
+        IMMDModel mmdModel = model.model;
+        long anim = MMDAnimManager.GetAnimModel(mmdModel, animId);
+        if (anim != 0) {
+            mmdModel.TransitionAnim(anim, 0, 0.25f);
+            logger.info("女仆 {} 播放动画: {}", maidUUID, animId);
+        } else {
+            logger.warn("女仆 {} 动画未找到: {}", maidUUID, animId);
+        }
+    }
+    
+    /**
      * 清理所有女仆模型绑定
      */
     public static void clearAll() {

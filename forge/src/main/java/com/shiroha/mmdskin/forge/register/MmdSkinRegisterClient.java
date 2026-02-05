@@ -9,6 +9,7 @@ import com.shiroha.mmdskin.renderer.render.MmdSkinRenderFactory;
 import com.shiroha.mmdskin.ui.ActionWheelNetworkHandler;
 import com.shiroha.mmdskin.ui.ConfigWheelScreen;
 import com.shiroha.mmdskin.ui.MaidConfigWheelScreen;
+import com.shiroha.mmdskin.ui.PlayerModelSyncManager;
 import com.mojang.blaze3d.platform.InputConstants;
 import java.io.File;
 import net.minecraft.client.Minecraft;
@@ -26,6 +27,7 @@ import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 
@@ -109,13 +111,21 @@ public class MmdSkinRegisterClient {
             }
         });
         
-        // 注册模型选择网络发送器
+        // 注册模型选择网络发送器（旧接口，保留向后兼容）
         com.shiroha.mmdskin.ui.ModelSelectorNetworkHandler.setNetworkSender(modelName -> {
             LocalPlayer player = MCinstance.player;
             if (player != null) {
+                // 使用 opCode 3 表示模型变更（字符串参数）
                 MmdSkinRegisterCommon.channel.sendToServer(
-                    new MmdSkinNetworkPack(3, player.getUUID(), modelName.hashCode()));
+                    new MmdSkinNetworkPack(3, player.getUUID(), modelName));
             }
+        });
+        
+        // 注册模型同步管理器的网络广播器（新接口，用于联机同步）
+        PlayerModelSyncManager.setNetworkBroadcaster((playerUUID, modelName) -> {
+            // 使用 opCode 3 发送模型选择到服务器
+            MmdSkinRegisterCommon.channel.sendToServer(
+                new MmdSkinNetworkPack(3, playerUUID, modelName));
         });
         
         // 注册女仆模型选择网络发送器
@@ -237,6 +247,31 @@ public class MmdSkinRegisterClient {
                 mc.setScreen(new MaidConfigWheelScreen(target.getUUID(), target.getId(), maidName, keyCode));
                 logger.info("打开女仆配置轮盘: {} (ID: {})", maidName, target.getId());
             }
+        }
+        
+        /**
+         * 玩家加入服务器事件（广播自己的模型选择）
+         */
+        @SubscribeEvent
+        public static void onPlayerLoggedIn(ClientPlayerNetworkEvent.LoggingIn event) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player != null) {
+                String selectedModel = com.shiroha.mmdskin.ui.ModelSelectorConfig.getInstance()
+                    .getPlayerModel(mc.player.getName().getString());
+                if (selectedModel != null && !selectedModel.isEmpty() && 
+                    !selectedModel.equals(com.shiroha.mmdskin.config.UIConstants.DEFAULT_MODEL_NAME)) {
+                    logger.info("玩家加入服务器，广播模型选择: {}", selectedModel);
+                    PlayerModelSyncManager.broadcastLocalModelSelection(mc.player.getUUID(), selectedModel);
+                }
+            }
+        }
+        
+        /**
+         * 玩家断开连接事件（清理远程玩家缓存）
+         */
+        @SubscribeEvent
+        public static void onPlayerLoggedOut(ClientPlayerNetworkEvent.LoggingOut event) {
+            PlayerModelSyncManager.onDisconnect();
         }
     }
 }

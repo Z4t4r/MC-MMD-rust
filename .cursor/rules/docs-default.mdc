@@ -1,0 +1,7 @@
+# Default output directory for reports and analysis
+
+When generating reports, analysis documents, or other written artifacts (e.g. code analysis, design docs, architecture summaries), if the user does not specify an output path or directory:
+
+- **Default output directory:** project root `docs/` (i.e. `<project_root>/docs/`).
+- Use a descriptive filename (e.g. `maid-code-analysis.md`, `architecture-overview.md`) unless the user specifies one.
+- If the `docs` directory does not exist, create it when writing the first file.

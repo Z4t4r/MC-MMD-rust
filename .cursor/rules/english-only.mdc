@@ -1,0 +1,11 @@
+---
+description: All documentation and responses must be in English
+alwaysApply: true
+---
+
+# English-only policy
+
+- **Documentation**: All project docs (e.g. in `docs/`, README, design notes, code comments intended as docs) must be written in **English**.
+- **Responses**: When explaining, answering, or proposing changes in this project, respond in **English** (clear, technical English; match the tone of engineering/DevOps docs).
+
+Code identifiers (names, paths), commit messages, and user-provided strings in prompts may stay as-is; do not translate those unless the user asks. Prefer English for any new prose, summaries, and recommendations.

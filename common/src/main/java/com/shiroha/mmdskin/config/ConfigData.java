@@ -45,6 +45,43 @@ public class ConfigData {
     public float toonOutlineG = 0.0f;
     public float toonOutlineB = 0.0f;
     
+    // ==================== 物理引擎配置 ====================
+    // 重力
+    public float physicsGravityY = -3.8f;
+    
+    // 模拟参数
+    public float physicsFps = 60.0f;
+    public int physicsMaxSubstepCount = 4;
+    public int physicsSolverIterations = 4;
+    public int physicsPgsIterations = 2;
+    public float physicsMaxCorrectiveVelocity = 0.1f;
+    
+    // 刚体阻尼
+    public float physicsLinearDampingScale = 0.3f;
+    public float physicsAngularDampingScale = 0.2f;
+    
+    // 质量
+    public float physicsMassScale = 2.0f;
+    
+    // 弹簧刚度
+    public float physicsLinearSpringStiffnessScale = 0.01f;
+    public float physicsAngularSpringStiffnessScale = 0.01f;
+    
+    // 弹簧阻尼
+    public float physicsLinearSpringDampingFactor = 8.0f;
+    public float physicsAngularSpringDampingFactor = 8.0f;
+    
+    // 惯性效果
+    public float physicsInertiaStrength = 1.0f;
+    
+    // 速度限制
+    public float physicsMaxLinearVelocity = 1.0f;
+    public float physicsMaxAngularVelocity = 1.0f;
+    
+    // 调试
+    public boolean physicsJointsEnabled = true;
+    public boolean physicsDebugLog = false;
+    
     /**
      * 从文件加载配置
      */
@@ -116,5 +153,24 @@ public class ConfigData {
         other.toonOutlineR = this.toonOutlineR;
         other.toonOutlineG = this.toonOutlineG;
         other.toonOutlineB = this.toonOutlineB;
+        // 物理引擎配置
+        other.physicsGravityY = this.physicsGravityY;
+        other.physicsFps = this.physicsFps;
+        other.physicsMaxSubstepCount = this.physicsMaxSubstepCount;
+        other.physicsSolverIterations = this.physicsSolverIterations;
+        other.physicsPgsIterations = this.physicsPgsIterations;
+        other.physicsMaxCorrectiveVelocity = this.physicsMaxCorrectiveVelocity;
+        other.physicsLinearDampingScale = this.physicsLinearDampingScale;
+        other.physicsAngularDampingScale = this.physicsAngularDampingScale;
+        other.physicsMassScale = this.physicsMassScale;
+        other.physicsLinearSpringStiffnessScale = this.physicsLinearSpringStiffnessScale;
+        other.physicsAngularSpringStiffnessScale = this.physicsAngularSpringStiffnessScale;
+        other.physicsLinearSpringDampingFactor = this.physicsLinearSpringDampingFactor;
+        other.physicsAngularSpringDampingFactor = this.physicsAngularSpringDampingFactor;
+        other.physicsInertiaStrength = this.physicsInertiaStrength;
+        other.physicsMaxLinearVelocity = this.physicsMaxLinearVelocity;
+        other.physicsMaxAngularVelocity = this.physicsMaxAngularVelocity;
+        other.physicsJointsEnabled = this.physicsJointsEnabled;
+        other.physicsDebugLog = this.physicsDebugLog;
     }
 }

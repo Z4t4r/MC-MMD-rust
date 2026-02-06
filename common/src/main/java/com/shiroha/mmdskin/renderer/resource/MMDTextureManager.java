@@ -42,6 +42,7 @@ public class MMDTextureManager {
             int texSize = x * y * (hasAlpha ? 4 : 3);
             ByteBuffer texBuffer = ByteBuffer.allocateDirect(texSize);
             nf.CopyDataToByteBuffer(texBuffer, texData, texSize);
+            texBuffer.rewind();
             if (hasAlpha) {
                 GL46C.glPixelStorei(GL46C.GL_UNPACK_ALIGNMENT, 4);
                 GL46C.glTexImage2D(GL46C.GL_TEXTURE_2D, 0, GL46C.GL_RGBA, x, y, 0, GL46C.GL_RGBA, GL46C.GL_UNSIGNED_BYTE, texBuffer);

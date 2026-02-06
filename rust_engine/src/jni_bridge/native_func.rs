@@ -2187,3 +2187,63 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_SetMorphWeight(
         model.morph_manager.set_morph_weight(index as usize, weight);
     }
 }
+
+// ==================== 物理配置相关 ====================
+
+/// 设置全局物理配置（实时调整）
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_SetPhysicsConfig(
+    _env: JNIEnv,
+    _class: JClass,
+    gravity_y: jfloat,
+    physics_fps: jfloat,
+    max_substep_count: jint,
+    solver_iterations: jint,
+    pgs_iterations: jint,
+    max_corrective_velocity: jfloat,
+    linear_damping_scale: jfloat,
+    angular_damping_scale: jfloat,
+    mass_scale: jfloat,
+    linear_spring_stiffness_scale: jfloat,
+    angular_spring_stiffness_scale: jfloat,
+    linear_spring_damping_factor: jfloat,
+    angular_spring_damping_factor: jfloat,
+    inertia_strength: jfloat,
+    max_linear_velocity: jfloat,
+    max_angular_velocity: jfloat,
+    joints_enabled: jboolean,
+    debug_log: jboolean,
+) {
+    use crate::physics::config::{PhysicsConfig, set_config};
+    
+    let config = PhysicsConfig {
+        gravity_y,
+        physics_fps,
+        max_substep_count: max_substep_count as i32,
+        solver_iterations: solver_iterations as usize,
+        pgs_iterations: pgs_iterations as usize,
+        max_corrective_velocity,
+        linear_damping_scale,
+        angular_damping_scale,
+        mass_scale,
+        linear_spring_stiffness_scale,
+        angular_spring_stiffness_scale,
+        linear_spring_damping_factor,
+        angular_spring_damping_factor,
+        inertia_strength,
+        max_linear_velocity,
+        max_angular_velocity,
+        joints_enabled: joints_enabled != 0,
+        debug_log: debug_log != 0,
+    };
+    
+    set_config(config);
+    
+    if debug_log != 0 {
+        log::info!("[物理配置] 已更新: 重力={}, FPS={}, 阻尼={}/{}, 刚度={}/{}", 
+            gravity_y, physics_fps, 
+            linear_damping_scale, angular_damping_scale,
+            linear_spring_stiffness_scale, angular_spring_stiffness_scale);
+    }
+}

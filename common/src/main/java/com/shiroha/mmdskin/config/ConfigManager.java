@@ -140,6 +140,80 @@ public class ConfigManager {
         return provider != null ? provider.getMaxBones() : 2048;
     }
     
+    // ==================== 物理引擎配置 ====================
+    
+    public static float getPhysicsGravityY() {
+        return provider != null ? provider.getPhysicsGravityY() : -3.8f;
+    }
+    
+    public static float getPhysicsFps() {
+        return provider != null ? provider.getPhysicsFps() : 60.0f;
+    }
+    
+    public static int getPhysicsMaxSubstepCount() {
+        return provider != null ? provider.getPhysicsMaxSubstepCount() : 4;
+    }
+    
+    public static int getPhysicsSolverIterations() {
+        return provider != null ? provider.getPhysicsSolverIterations() : 4;
+    }
+    
+    public static int getPhysicsPgsIterations() {
+        return provider != null ? provider.getPhysicsPgsIterations() : 2;
+    }
+    
+    public static float getPhysicsMaxCorrectiveVelocity() {
+        return provider != null ? provider.getPhysicsMaxCorrectiveVelocity() : 0.1f;
+    }
+    
+    public static float getPhysicsLinearDampingScale() {
+        return provider != null ? provider.getPhysicsLinearDampingScale() : 0.3f;
+    }
+    
+    public static float getPhysicsAngularDampingScale() {
+        return provider != null ? provider.getPhysicsAngularDampingScale() : 0.2f;
+    }
+    
+    public static float getPhysicsMassScale() {
+        return provider != null ? provider.getPhysicsMassScale() : 2.0f;
+    }
+    
+    public static float getPhysicsLinearSpringStiffnessScale() {
+        return provider != null ? provider.getPhysicsLinearSpringStiffnessScale() : 0.01f;
+    }
+    
+    public static float getPhysicsAngularSpringStiffnessScale() {
+        return provider != null ? provider.getPhysicsAngularSpringStiffnessScale() : 0.01f;
+    }
+    
+    public static float getPhysicsLinearSpringDampingFactor() {
+        return provider != null ? provider.getPhysicsLinearSpringDampingFactor() : 8.0f;
+    }
+    
+    public static float getPhysicsAngularSpringDampingFactor() {
+        return provider != null ? provider.getPhysicsAngularSpringDampingFactor() : 8.0f;
+    }
+    
+    public static float getPhysicsInertiaStrength() {
+        return provider != null ? provider.getPhysicsInertiaStrength() : 1.0f;
+    }
+    
+    public static float getPhysicsMaxLinearVelocity() {
+        return provider != null ? provider.getPhysicsMaxLinearVelocity() : 1.0f;
+    }
+    
+    public static float getPhysicsMaxAngularVelocity() {
+        return provider != null ? provider.getPhysicsMaxAngularVelocity() : 1.0f;
+    }
+    
+    public static boolean isPhysicsJointsEnabled() {
+        return provider != null ? provider.isPhysicsJointsEnabled() : true;
+    }
+    
+    public static boolean isPhysicsDebugLog() {
+        return provider != null ? provider.isPhysicsDebugLog() : false;
+    }
+    
     /**
      * 配置提供者接口
      * 各平台实现此接口以提供配置值
@@ -187,5 +261,61 @@ public class ConfigManager {
         
         /** GPU 蒙皮最大骨骼数量（默认2048） */
         default int getMaxBones() { return 2048; }
+        
+        // ==================== 物理引擎配置 ====================
+        
+        /** 重力 Y 分量（默认 -3.8） */
+        default float getPhysicsGravityY() { return -3.8f; }
+        
+        /** 物理 FPS（默认 60） */
+        default float getPhysicsFps() { return 60.0f; }
+        
+        /** 每帧最大子步数（默认 4） */
+        default int getPhysicsMaxSubstepCount() { return 4; }
+        
+        /** 求解器迭代次数（默认 4） */
+        default int getPhysicsSolverIterations() { return 4; }
+        
+        /** PGS 迭代次数（默认 2） */
+        default int getPhysicsPgsIterations() { return 2; }
+        
+        /** 最大修正速度（默认 0.1） */
+        default float getPhysicsMaxCorrectiveVelocity() { return 0.1f; }
+        
+        /** 线性阻尼缩放（默认 0.3） */
+        default float getPhysicsLinearDampingScale() { return 0.3f; }
+        
+        /** 角速度阻尼缩放（默认 0.2） */
+        default float getPhysicsAngularDampingScale() { return 0.2f; }
+        
+        /** 质量缩放（默认 2.0） */
+        default float getPhysicsMassScale() { return 2.0f; }
+        
+        /** 线性弹簧刚度缩放（默认 0.01） */
+        default float getPhysicsLinearSpringStiffnessScale() { return 0.01f; }
+        
+        /** 角度弹簧刚度缩放（默认 0.01） */
+        default float getPhysicsAngularSpringStiffnessScale() { return 0.01f; }
+        
+        /** 线性弹簧阻尼系数（默认 8.0） */
+        default float getPhysicsLinearSpringDampingFactor() { return 8.0f; }
+        
+        /** 角度弹簧阻尼系数（默认 8.0） */
+        default float getPhysicsAngularSpringDampingFactor() { return 8.0f; }
+        
+        /** 惯性效果强度（默认 1.0） */
+        default float getPhysicsInertiaStrength() { return 1.0f; }
+        
+        /** 最大线速度（默认 1.0） */
+        default float getPhysicsMaxLinearVelocity() { return 1.0f; }
+        
+        /** 最大角速度（默认 1.0） */
+        default float getPhysicsMaxAngularVelocity() { return 1.0f; }
+        
+        /** 是否启用关节（默认 true） */
+        default boolean isPhysicsJointsEnabled() { return true; }
+        
+        /** 是否输出调试日志（默认 false） */
+        default boolean isPhysicsDebugLog() { return false; }
     }
 }

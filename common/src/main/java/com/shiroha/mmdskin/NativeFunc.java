@@ -19,7 +19,12 @@ public class NativeFunc {
     private static final boolean isLinux = System.getProperty("os.name").toLowerCase().contains("linux");
     private static final boolean isWindows = System.getProperty("os.name").toLowerCase().contains("windows");
     private static final boolean isMacOS = System.getProperty("os.name").toLowerCase().contains("mac");
-    static final String libraryVersion = "Rust-20260125";
+    private static final boolean isArm64;
+    static {
+        String arch = System.getProperty("os.arch").toLowerCase();
+        isArm64 = arch.contains("aarch64") || arch.contains("arm64");
+    }
+    static final String libraryVersion = "v1.0.0";
     private static volatile NativeFunc inst;
     private static final Object lock = new Object();
 
@@ -132,16 +137,19 @@ public class NativeFunc {
         String fileName;
         
         if (isWindows) {
-            logger.info("Windows Env Detected!");
-            resourcePath = "/natives/windows/mmd_engine.dll";
+            String archDir = isArm64 ? "windows-arm64" : "windows-x64";
+            logger.info("Windows Env Detected! Arch: " + archDir);
+            resourcePath = "/natives/" + archDir + "/mmd_engine.dll";
             fileName = "mmd_engine.dll";
         } else if (isMacOS) {
-            logger.info("macOS Env Detected!");
-            resourcePath = "/natives/macos/libmmd_engine.dylib";
+            String archDir = isArm64 ? "macos-arm64" : "macos-x64";
+            logger.info("macOS Env Detected! Arch: " + archDir);
+            resourcePath = "/natives/" + archDir + "/libmmd_engine.dylib";
             fileName = "libmmd_engine.dylib";
         } else if (isLinux && !isAndroid) {
-            logger.info("Linux Env Detected!");
-            resourcePath = "/natives/linux/libmmd_engine.so";
+            String archDir = isArm64 ? "linux-arm64" : "linux-x64";
+            logger.info("Linux Env Detected! Arch: " + archDir);
+            resourcePath = "/natives/" + archDir + "/libmmd_engine.so";
             fileName = "libmmd_engine.so";
         } else if (isLinux && isAndroid) {
             logger.info("Android Env Detected!");
@@ -694,4 +702,48 @@ public class NativeFunc {
      * @param weight 权重值 (0.0-1.0)
      */
     public native void SetMorphWeight(long model, int index, float weight);
+    
+    // ========== 物理配置相关 ==========
+    
+    /**
+     * 设置全局物理配置（实时调整，保存时调用）
+     * @param gravityY 重力 Y 分量（负数向下）
+     * @param physicsFps 物理模拟 FPS
+     * @param maxSubstepCount 每帧最大子步数
+     * @param solverIterations 求解器迭代次数
+     * @param pgsIterations PGS 迭代次数
+     * @param maxCorrectiveVelocity 最大修正速度
+     * @param linearDampingScale 线性阻尼缩放
+     * @param angularDampingScale 角速度阻尼缩放
+     * @param massScale 质量缩放
+     * @param linearSpringStiffnessScale 线性弹簧刚度缩放
+     * @param angularSpringStiffnessScale 角度弹簧刚度缩放
+     * @param linearSpringDampingFactor 线性弹簧阻尼系数
+     * @param angularSpringDampingFactor 角度弹簧阻尼系数
+     * @param inertiaStrength 惯性效果强度
+     * @param maxLinearVelocity 最大线速度
+     * @param maxAngularVelocity 最大角速度
+     * @param jointsEnabled 是否启用关节
+     * @param debugLog 是否输出调试日志
+     */
+    public native void SetPhysicsConfig(
+        float gravityY,
+        float physicsFps,
+        int maxSubstepCount,
+        int solverIterations,
+        int pgsIterations,
+        float maxCorrectiveVelocity,
+        float linearDampingScale,
+        float angularDampingScale,
+        float massScale,
+        float linearSpringStiffnessScale,
+        float angularSpringStiffnessScale,
+        float linearSpringDampingFactor,
+        float angularSpringDampingFactor,
+        float inertiaStrength,
+        float maxLinearVelocity,
+        float maxAngularVelocity,
+        boolean jointsEnabled,
+        boolean debugLog
+    );
 }

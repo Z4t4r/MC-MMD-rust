@@ -141,4 +141,96 @@ public final class MmdSkinConfig implements ConfigManager.IConfigProvider {
     public int getMaxBones() {
         return data.maxBones;
     }
+    
+    // ==================== 物理引擎配置 ====================
+    
+    @Override
+    public float getPhysicsGravityY() {
+        return data.physicsGravityY;
+    }
+    
+    @Override
+    public float getPhysicsFps() {
+        return data.physicsFps;
+    }
+    
+    @Override
+    public int getPhysicsMaxSubstepCount() {
+        return data.physicsMaxSubstepCount;
+    }
+    
+    @Override
+    public int getPhysicsSolverIterations() {
+        return data.physicsSolverIterations;
+    }
+    
+    @Override
+    public int getPhysicsPgsIterations() {
+        return data.physicsPgsIterations;
+    }
+    
+    @Override
+    public float getPhysicsMaxCorrectiveVelocity() {
+        return data.physicsMaxCorrectiveVelocity;
+    }
+    
+    @Override
+    public float getPhysicsLinearDampingScale() {
+        return data.physicsLinearDampingScale;
+    }
+    
+    @Override
+    public float getPhysicsAngularDampingScale() {
+        return data.physicsAngularDampingScale;
+    }
+    
+    @Override
+    public float getPhysicsMassScale() {
+        return data.physicsMassScale;
+    }
+    
+    @Override
+    public float getPhysicsLinearSpringStiffnessScale() {
+        return data.physicsLinearSpringStiffnessScale;
+    }
+    
+    @Override
+    public float getPhysicsAngularSpringStiffnessScale() {
+        return data.physicsAngularSpringStiffnessScale;
+    }
+    
+    @Override
+    public float getPhysicsLinearSpringDampingFactor() {
+        return data.physicsLinearSpringDampingFactor;
+    }
+    
+    @Override
+    public float getPhysicsAngularSpringDampingFactor() {
+        return data.physicsAngularSpringDampingFactor;
+    }
+    
+    @Override
+    public float getPhysicsInertiaStrength() {
+        return data.physicsInertiaStrength;
+    }
+    
+    @Override
+    public float getPhysicsMaxLinearVelocity() {
+        return data.physicsMaxLinearVelocity;
+    }
+    
+    @Override
+    public float getPhysicsMaxAngularVelocity() {
+        return data.physicsMaxAngularVelocity;
+    }
+    
+    @Override
+    public boolean isPhysicsJointsEnabled() {
+        return data.physicsJointsEnabled;
+    }
+    
+    @Override
+    public boolean isPhysicsDebugLog() {
+        return data.physicsDebugLog;
+    }
 }

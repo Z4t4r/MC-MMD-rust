@@ -19,13 +19,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Build Windows x64 DLL
         run: cargo build --release --manifest-path rust_engine/Cargo.toml
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -38,15 +38,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-pc-windows-msvc
-      
+
       - name: Build Windows ARM64 DLL
         run: cargo build --release --manifest-path rust_engine/Cargo.toml --target aarch64-pc-windows-msvc
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -59,13 +59,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Build Linux x64 SO
         run: cargo build --release --manifest-path rust_engine/Cargo.toml
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -78,27 +78,95 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu
-      
+
       - name: Install cross-compilation tools
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
-      
+
       - name: Build Linux ARM64 SO
         run: cargo build --release --manifest-path rust_engine/Cargo.toml --target aarch64-unknown-linux-gnu
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-linux-arm64
           path: rust_engine/target/aarch64-unknown-linux-gnu/release/libmmd_engine.so
+
+  build-rust-linux-loongarch64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: loongarch64-unknown-linux-gnu
+
+      - name: Install LoongArch64 cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install gcc-15-loongarch64-linux-gnu -y
+          sudo update-alternatives \
+            --install /usr/bin/loongarch64-linux-gnu-gcc loongarch64-linux-gnu-gcc /usr/bin/loongarch64-linux-gnu-gcc-15 100 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcc-ar loongarch64-linux-gnu-gcc-ar /usr/bin/loongarch64-linux-gnu-gcc-ar-15 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcc-nm loongarch64-linux-gnu-gcc-nm /usr/bin/loongarch64-linux-gnu-gcc-nm-15 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcc-ranlib loongarch64-linux-gnu-gcc-ranlib /usr/bin/loongarch64-linux-gnu-gcc-ranlib-15 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcov loongarch64-linux-gnu-gcov /usr/bin/loongarch64-linux-gnu-gcov-15
+          sudo update-alternatives \
+            --install /usr/bin/loongarch64-linux-gnu-cpp loongarch64-linux-gnu-cpp /usr/bin/loongarch64-linux-gnu-cpp-15 100
+
+      - name: Build Linux LoongArch64 SO
+        run: cargo build --release --manifest-path rust_engine/Cargo.toml --target loongarch64-unknown-linux-gnu
+        env:
+          CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER: loongarch64-linux-gnu-gcc
+          CC_loongarch64_unknown_linux_gnu: loongarch64-linux-gnu-gcc
+          AR_loongarch64_unknown_linux_gnu: loongarch64-linux-gnu-ar
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-linux-loongarch64
+          path: rust_engine/target/loongarch64-unknown-linux-gnu/release/libmmd_engine.so
+
+  build-rust-linux-riscv64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64gc-unknown-linux-gnu
+
+      - name: Install RISC-V 64 cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-riscv64-linux-gnu
+
+      - name: Build Linux RISC-V 64 SO
+        run: cargo build --release --manifest-path rust_engine/Cargo.toml --target riscv64gc-unknown-linux-gnu
+        env:
+          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
+          CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
+          AR_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-ar
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-linux-riscv64
+          path: rust_engine/target/riscv64gc-unknown-linux-gnu/release/libmmd_engine.so
 
   build-rust-macos-x64:
     runs-on: macos-latest
@@ -106,15 +174,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin
-      
+
       - name: Build macOS x64 dylib
         run: cargo build --release --manifest-path rust_engine/Cargo.toml --target x86_64-apple-darwin
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -127,15 +195,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
-      
+
       - name: Build macOS ARM64 dylib
         run: cargo build --release --manifest-path rust_engine/Cargo.toml --target aarch64-apple-darwin
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -148,18 +216,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-      
+
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
           ndk-version: r27c
-      
+
       - name: Build Android ARM64 SO
         run: cargo build --release --manifest-path rust_engine/Cargo.toml --target aarch64-linux-android
         env:
@@ -167,7 +235,7 @@ jobs:
           CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           CC_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           AR_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -182,12 +250,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Download native libraries
         uses: actions/download-artifact@v4
         with:
           path: native-libs
-      
+
       - name: Copy natives to resources
         run: |
           mkdir -p common/src/main/resources/natives/windows-x64
@@ -196,22 +264,22 @@ jobs:
           cp native-libs/native-windows-x64/mmd_engine.dll common/src/main/resources/natives/windows-x64/
           cp native-libs/native-linux-x64/libmmd_engine.so common/src/main/resources/natives/linux-x64/
           cp native-libs/native-android-arm64/libmmd_engine.so common/src/main/resources/natives/android-arm64/
-      
+
       - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-      
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
-      
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-      
+
       - name: Build with Gradle
         run: ./gradlew build --no-daemon -x test
-      
+
       - name: Upload Fabric Mod
         uses: actions/upload-artifact@v4
         with:
@@ -221,7 +289,7 @@ jobs:
             !fabric/build/libs/*-dev*.jar
             !fabric/build/libs/*-sources*.jar
           if-no-files-found: error
-      
+
       - name: Upload Forge Mod
         uses: actions/upload-artifact@v4
         with:
@@ -234,7 +302,7 @@ jobs:
 
   # ==================== 统一发布 ====================
   release:
-    needs: [build-rust-windows-x64, build-rust-windows-arm64, build-rust-linux-x64, build-rust-linux-arm64, build-rust-macos-x64, build-rust-macos-arm64, build-rust-android-arm64, build-java]
+    needs: [build-rust-windows-x64, build-rust-windows-arm64, build-rust-linux-x64, build-rust-linux-arm64, build-rust-macos-x64, build-rust-macos-arm64, build-rust-android-arm64, build-rust-linux-loongarch64, build-rust-linux-riscv64, build-java]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -244,17 +312,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-      
+
       - name: Rename artifacts for clarity
         run: |
           mv artifacts/native-windows-x64/mmd_engine.dll artifacts/native-windows-x64/mmd_engine-windows-x64.dll
           mv artifacts/native-windows-arm64/mmd_engine.dll artifacts/native-windows-arm64/mmd_engine-windows-arm64.dll
           mv artifacts/native-linux-x64/libmmd_engine.so artifacts/native-linux-x64/libmmd_engine-linux-x64.so
           mv artifacts/native-linux-arm64/libmmd_engine.so artifacts/native-linux-arm64/libmmd_engine-linux-arm64.so
+          mv artifacts/native-linux-loongarch64/libmmd_engine.so artifacts/native-linux-loongarch64/libmmd_engine-linux-loongarch64.so
+          mv artifacts/native-linux-riscv64/libmmd_engine.so artifacts/native-linux-riscv64/libmmd_engine-linux-riscv64.so
           mv artifacts/native-macos-x64/libmmd_engine.dylib artifacts/native-macos-x64/libmmd_engine-macos-x64.dylib
           mv artifacts/native-macos-arm64/libmmd_engine.dylib artifacts/native-macos-arm64/libmmd_engine-macos-arm64.dylib
           mv artifacts/native-android-arm64/libmmd_engine.so artifacts/native-android-arm64/libmmd_engine-android-arm64.so
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -265,6 +335,8 @@ jobs:
             artifacts/native-windows-arm64/*.dll
             artifacts/native-linux-x64/*.so
             artifacts/native-linux-arm64/*.so
+            artifacts/native-linux-loongarch64/*.so
+            artifacts/native-linux-riscv64/*.so
             artifacts/native-macos-x64/*.dylib
             artifacts/native-macos-arm64/*.dylib
             artifacts/native-android-arm64/*.so

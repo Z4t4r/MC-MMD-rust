@@ -66,6 +66,9 @@ public final class PathConstants {
     /** PMD 模型文件扩展名 */
     public static final String PMD_EXTENSION = ".pmd";
     
+    /** 支持的音频文件扩展名 */
+    public static final String[] AUDIO_EXTENSIONS = {".mp3", ".ogg", ".wav"};
+    
     // ==================== 下载链接 ====================
     /** 资源包下载地址 */
     public static final String RESOURCE_DOWNLOAD_URL = 
@@ -244,5 +247,34 @@ public final class PathConstants {
             return dir.mkdirs();
         }
         return true;
+    }
+    
+    /**
+     * 确保 StageAnim 目录存在，首次创建时放置说明文件
+     */
+    public static void ensureStageAnimDir() {
+        File stageDir = getStageAnimDir();
+        if (!stageDir.exists()) {
+            if (stageDir.mkdirs()) {
+                // 首次创建，写入说明文件
+                try {
+                    File readme = new File(stageDir, "_readme.txt");
+                    java.nio.file.Files.writeString(readme.toPath(),
+                        "=== StageAnim 舞台动画目录 ===\n\n" +
+                        "请将舞台动画 VMD 文件按子文件夹组织：\n\n" +
+                        "StageAnim/\n" +
+                        "  千本桜/\n" +
+                        "    motion.vmd      (动作VMD)\n" +
+                        "    camera.vmd      (相机VMD)\n" +
+                        "    face.vmd        (表情VMD)\n" +
+                        "  极乐净土/\n" +
+                        "    ...\n\n" +
+                        "每个子文件夹视为一个「舞台包」，其中的所有非相机VMD会自动合并播放。\n" +
+                        "含相机数据的VMD会自动识别为相机文件。\n\n" +
+                        "音频支持：将 .mp3 / .ogg / .wav 文件放在同一子文件夹中，播放时自动随动作同步播放。\n"
+                    );
+                } catch (Exception ignored) {}
+            }
+        }
     }
 }

@@ -100,6 +100,11 @@ public class MMDModelOpenGL implements IMMDModel {
     private FloatBuffer projMatBuff;
     private FloatBuffer light0Buff;                  // 预分配的光照缓冲区
     private FloatBuffer light1Buff;
+    
+    // 材质 Morph 结果
+    private FloatBuffer materialMorphResultsBuffer;
+    private ByteBuffer materialMorphResultsByteBuffer;
+    private int materialMorphResultCount = 0;
 
     MMDModelOpenGL() {
         // 不在这里初始化时间，等第一次 Update 时初始化
@@ -258,6 +263,16 @@ public class MMDModelOpenGL implements IMMDModel {
         result.light0Buff = MemoryUtil.memAllocFloat(3);
         result.light1Buff = MemoryUtil.memAllocFloat(3);
         
+        // 初始化材质 Morph 结果缓冲区
+        int matMorphCount = nf.GetMaterialMorphResultCount(model);
+        if (matMorphCount > 0) {
+            int floatCount = matMorphCount * 28;
+            result.materialMorphResultCount = matMorphCount;
+            result.materialMorphResultsBuffer = MemoryUtil.memAllocFloat(floatCount);
+            result.materialMorphResultsByteBuffer = MemoryUtil.memAlloc(floatCount * 4);
+            result.materialMorphResultsByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        }
+        
         // 启用自动眨眼
         nf.SetAutoBlinkEnabled(model, true);
         
@@ -284,6 +299,14 @@ public class MMDModelOpenGL implements IMMDModel {
         if (light1Buff != null) {
             MemoryUtil.memFree(light1Buff);
             light1Buff = null;
+        }
+        if (materialMorphResultsBuffer != null) {
+            MemoryUtil.memFree(materialMorphResultsBuffer);
+            materialMorphResultsBuffer = null;
+        }
+        if (materialMorphResultsByteBuffer != null) {
+            MemoryUtil.memFree(materialMorphResultsByteBuffer);
+            materialMorphResultsByteBuffer = null;
         }
         
         // 释放自建的 lightMap 纹理（来自 MMDTextureManager 的不在此删除）
@@ -372,6 +395,32 @@ public class MMDModelOpenGL implements IMMDModel {
         return cachedModelName;
     }
 
+    /**
+     * 从 Rust 端获取材质 Morph 结果
+     */
+    private void fetchMaterialMorphResults() {
+        if (materialMorphResultCount <= 0 || materialMorphResultsBuffer == null) return;
+        
+        materialMorphResultsByteBuffer.clear();
+        nf.CopyMaterialMorphResultsToBuffer(model, materialMorphResultsByteBuffer);
+        materialMorphResultsBuffer.clear();
+        materialMorphResultsByteBuffer.position(0);
+        materialMorphResultsBuffer.put(materialMorphResultsByteBuffer.asFloatBuffer());
+        materialMorphResultsBuffer.flip();
+    }
+    
+    /**
+     * 获取指定材质的 Morph diffuse alpha 乘数
+     */
+    private float getMaterialMorphAlpha(int materialIndex) {
+        if (materialMorphResultsBuffer == null || materialIndex >= materialMorphResultCount) return 1.0f;
+        int offset = materialIndex * 28 + 3; // diffuse.w
+        if (offset < materialMorphResultsBuffer.capacity()) {
+            return materialMorphResultsBuffer.get(offset);
+        }
+        return 1.0f;
+    }
+    
     void Update() {
         // 计算真实的 deltaTime（秒）
         long currentTime = System.currentTimeMillis();
@@ -426,6 +475,9 @@ public class MMDModelOpenGL implements IMMDModel {
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
         float baseScale = 0.09f * com.shiroha.mmdskin.config.ModelConfigManager.getConfig(getModelName()).modelScale;
         deliverStack.scale(baseScale, baseScale, baseScale);
+        
+        // 获取材质 Morph 结果
+        fetchMaterialMorphResults();
         
         // 检查是否启用 Toon 渲染
         boolean useToon = ConfigManager.isToonRenderingEnabled();
@@ -678,7 +730,8 @@ public class MMDModelOpenGL implements IMMDModel {
                 continue;
             
             float alpha = nf.GetMaterialAlpha(model, materialID);
-            if (alpha == 0.0f)
+            float morphAlpha = getMaterialMorphAlpha(materialID);
+            if (alpha * morphAlpha < 0.001f)
                 continue;
 
             if (nf.GetMaterialBothFace(model, materialID)) {
@@ -820,7 +873,7 @@ public class MMDModelOpenGL implements IMMDModel {
             for (long i = 0; i < subMeshCount; ++i) {
                 int materialID = nf.GetSubMeshMaterialID(model, i);
                 if (!nf.IsMaterialVisible(model, materialID)) continue;
-                if (nf.GetMaterialAlpha(model, materialID) == 0.0f) continue;
+                if (nf.GetMaterialAlpha(model, materialID) * getMaterialMorphAlpha(materialID) < 0.001f) continue;
                 
                 long startPos = (long) nf.GetSubMeshBeginIndex(model, i) * indexElementSize;
                 int count = nf.GetSubMeshVertexCount(model, i);
@@ -883,7 +936,8 @@ public class MMDModelOpenGL implements IMMDModel {
             if (!nf.IsMaterialVisible(model, materialID)) continue;
             
             float alpha = nf.GetMaterialAlpha(model, materialID);
-            if (alpha == 0.0f) continue;
+            float morphAlpha = getMaterialMorphAlpha(materialID);
+            if (alpha * morphAlpha < 0.001f) continue;
             
             if (nf.GetMaterialBothFace(model, materialID)) {
                 RenderSystem.disableCull();

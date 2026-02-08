@@ -47,6 +47,7 @@ public class SkinningComputeShader {
     private int vertexCountLocation = -1;
     private int morphCountLocation = -1;
     private int maxBonesLocation = -1;
+    private int uvMorphCountLocation = -1;
     
     // SSBO 绑定点常量
     private static final int BINDING_ORIG_POSITIONS = 0;
@@ -58,6 +59,10 @@ public class SkinningComputeShader {
     private static final int BINDING_MORPH_WEIGHTS = 6;
     private static final int BINDING_SKINNED_POSITIONS = 7;
     private static final int BINDING_SKINNED_NORMALS = 8;
+    private static final int BINDING_ORIG_UVS = 9;
+    private static final int BINDING_UV_MORPH_OFFSETS = 10;
+    private static final int BINDING_UV_MORPH_WEIGHTS = 11;
+    private static final int BINDING_SKINNED_UVS = 12;
     
     
     // Compute Shader 源码
@@ -87,7 +92,7 @@ public class SkinningComputeShader {
             mat4 boneMatrices[];
         };
         
-        // Morph 数据（只读）
+        // 顶点 Morph 数据（只读）
         layout(std430, binding = 5) readonly buffer MorphOffsets {
             float morphOffsets[];
         };
@@ -105,9 +110,28 @@ public class SkinningComputeShader {
             float skinnedNormals[];
         };
         
+        // UV Morph 数据（只读）
+        layout(std430, binding = 9) readonly buffer OriginalUVs {
+            float origUVs[];
+        };
+        
+        layout(std430, binding = 10) readonly buffer UvMorphOffsets {
+            float uvMorphOffsets[];
+        };
+        
+        layout(std430, binding = 11) readonly buffer UvMorphWeights {
+            float uvMorphWeights[];
+        };
+        
+        // 蒙皮后 UV（写入）
+        layout(std430, binding = 12) writeonly buffer SkinnedUVs {
+            float skinnedUVs[];
+        };
+        
         uniform int VertexCount;
         uniform int MorphCount;
         uniform int MaxBones;
+        uniform int UvMorphCount;
         
         void main() {
             uint vid = gl_GlobalInvocationID.x;
@@ -115,12 +139,13 @@ public class SkinningComputeShader {
             
             uint base3 = vid * 3;
             uint base4 = vid * 4;
+            uint base2 = vid * 2;
             
             // 读取原始位置和法线
             vec3 pos = vec3(origPositions[base3], origPositions[base3 + 1], origPositions[base3 + 2]);
             vec3 nor = vec3(origNormals[base3], origNormals[base3 + 1], origNormals[base3 + 2]);
             
-            // 应用 Morph 偏移
+            // 应用顶点 Morph 偏移
             if (MorphCount > 0) {
                 for (int m = 0; m < MorphCount && m < 128; m++) {
                     float w = morphWeights[m];
@@ -168,7 +193,7 @@ public class SkinningComputeShader {
             mat3 normalMat = mat3(skinMatrix);
             vec3 skinnedNor = normalize(normalMat * nor);
             
-            // 写入输出
+            // 写入位置/法线输出
             skinnedPositions[base3] = skinnedPos.x;
             skinnedPositions[base3 + 1] = skinnedPos.y;
             skinnedPositions[base3 + 2] = skinnedPos.z;
@@ -176,6 +201,24 @@ public class SkinningComputeShader {
             skinnedNormals[base3] = skinnedNor.x;
             skinnedNormals[base3 + 1] = skinnedNor.y;
             skinnedNormals[base3 + 2] = skinnedNor.z;
+            
+            // 应用 UV Morph 偏移并写入输出（UvMorphCount < 0 表示无 UV 处理）
+            if (UvMorphCount >= 0) {
+                float u = origUVs[base2];
+                float v = origUVs[base2 + 1];
+                if (UvMorphCount > 0) {
+                    for (int m = 0; m < UvMorphCount && m < 32; m++) {
+                        float w = uvMorphWeights[m];
+                        if (abs(w) > 0.001) {
+                            uint uvIdx = uint(m) * uint(VertexCount) * 2u + vid * 2u;
+                            u += uvMorphOffsets[uvIdx] * w;
+                            v += uvMorphOffsets[uvIdx + 1u] * w;
+                        }
+                    }
+                }
+                skinnedUVs[base2] = u;
+                skinnedUVs[base2 + 1] = v;
+            }
         }
         """;
     
@@ -216,6 +259,7 @@ public class SkinningComputeShader {
             vertexCountLocation = GL43C.glGetUniformLocation(program, "VertexCount");
             morphCountLocation = GL43C.glGetUniformLocation(program, "MorphCount");
             maxBonesLocation = GL43C.glGetUniformLocation(program, "MaxBones");
+            uvMorphCountLocation = GL43C.glGetUniformLocation(program, "UvMorphCount");
             
             initialized = true;
             logger.info("蒙皮 Compute Shader 初始化成功");
@@ -248,7 +292,7 @@ public class SkinningComputeShader {
     }
     
     /**
-     * 执行蒙皮计算
+     * 执行蒙皮计算（含 UV Morph）
      * 
      * @param origPosBuffer       原始顶点位置 VBO
      * @param origNorBuffer       原始顶点法线 VBO
@@ -256,22 +300,29 @@ public class SkinningComputeShader {
      * @param boneWgtBuffer       骨骼权重 VBO
      * @param outSkinnedPosBuffer 输出蒙皮后位置缓冲区
      * @param outSkinnedNorBuffer 输出蒙皮后法线缓冲区
-     * @param boneMatrixSSBO      骨骼矩阵 SSBO（每实例独立）
-     * @param morphOffsetsSSBO    Morph 偏移 SSBO（每实例独立）
-     * @param morphWeightsSSBO    Morph 权重 SSBO（每实例独立）
+     * @param boneMatrixSSBO      骨骼矩阵 SSBO
+     * @param morphOffsetsSSBO    顶点 Morph 偏移 SSBO
+     * @param morphWeightsSSBO    顶点 Morph 权重 SSBO
      * @param vertexCount         顶点数量
-     * @param morphCount          Morph 数量
+     * @param morphCount          顶点 Morph 数量
+     * @param origUvBuffer        原始 UV VBO
+     * @param uvMorphOffsetsSSBO  UV Morph 偏移 SSBO
+     * @param uvMorphWeightsSSBO  UV Morph 权重 SSBO
+     * @param outSkinnedUvBuffer  输出蒙皮后 UV 缓冲区
+     * @param uvMorphCount        UV Morph 数量
      */
     public void dispatch(int origPosBuffer, int origNorBuffer,
                          int boneIdxBuffer, int boneWgtBuffer,
                          int outSkinnedPosBuffer, int outSkinnedNorBuffer,
                          int boneMatrixSSBO,
                          int morphOffsetsSSBO, int morphWeightsSSBO,
-                         int vertexCount, int morphCount) {
+                         int vertexCount, int morphCount,
+                         int origUvBuffer,
+                         int uvMorphOffsetsSSBO, int uvMorphWeightsSSBO,
+                         int outSkinnedUvBuffer, int uvMorphCount) {
         if (!initialized || program == 0) return;
         
         int savedProgram = GL46C.glGetInteger(GL46C.GL_CURRENT_PROGRAM);
-        // 保存当前所有 SSBO 绑定状态（避免破坏光影 mod 如 Eclipse Shaders 的 SSBO）
         var savedSSBO = new SSBOBindings();
         
         GL43C.glUseProgram(program);
@@ -279,6 +330,7 @@ public class SkinningComputeShader {
         if (vertexCountLocation >= 0) GL43C.glUniform1i(vertexCountLocation, vertexCount);
         if (morphCountLocation >= 0) GL43C.glUniform1i(morphCountLocation, morphCount);
         if (maxBonesLocation >= 0) GL43C.glUniform1i(maxBonesLocation, MAX_BONES);
+        if (uvMorphCountLocation >= 0) GL43C.glUniform1i(uvMorphCountLocation, uvMorphCount);
         
         GL43C.glBindBufferBase(GL43C.GL_SHADER_STORAGE_BUFFER, BINDING_ORIG_POSITIONS, origPosBuffer);
         GL43C.glBindBufferBase(GL43C.GL_SHADER_STORAGE_BUFFER, BINDING_ORIG_NORMALS, origNorBuffer);
@@ -294,18 +346,42 @@ public class SkinningComputeShader {
         GL43C.glBindBufferBase(GL43C.GL_SHADER_STORAGE_BUFFER, BINDING_SKINNED_POSITIONS, outSkinnedPosBuffer);
         GL43C.glBindBufferBase(GL43C.GL_SHADER_STORAGE_BUFFER, BINDING_SKINNED_NORMALS, outSkinnedNorBuffer);
         
-        // 调度 Compute Shader
+        // UV 相关 SSBO
+        GL43C.glBindBufferBase(GL43C.GL_SHADER_STORAGE_BUFFER, BINDING_ORIG_UVS, origUvBuffer);
+        if (uvMorphCount > 0 && uvMorphOffsetsSSBO != 0) {
+            GL43C.glBindBufferBase(GL43C.GL_SHADER_STORAGE_BUFFER, BINDING_UV_MORPH_OFFSETS, uvMorphOffsetsSSBO);
+        }
+        if (uvMorphCount > 0 && uvMorphWeightsSSBO != 0) {
+            GL43C.glBindBufferBase(GL43C.GL_SHADER_STORAGE_BUFFER, BINDING_UV_MORPH_WEIGHTS, uvMorphWeightsSSBO);
+        }
+        GL43C.glBindBufferBase(GL43C.GL_SHADER_STORAGE_BUFFER, BINDING_SKINNED_UVS, outSkinnedUvBuffer);
+        
         int groupCount = (vertexCount + LOCAL_SIZE_X - 1) / LOCAL_SIZE_X;
         GL43C.glDispatchCompute(groupCount, 1, 1);
         
-        // 内存屏障：确保 compute 写入完成后再用作顶点属性
         GL43C.glMemoryBarrier(GL43C.GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT | GL43C.GL_SHADER_STORAGE_BARRIER_BIT);
         
-        // 恢复之前的 SSBO 绑定状态（避免破坏光影 mod 的 SSBO）
         savedSSBO.restore();
-        
-        // 恢复之前的 GL 程序（保持 ShaderInstance.lastProgramId 和 GlStateManager 缓存一致）
         GL43C.glUseProgram(savedProgram);
+    }
+    
+    /**
+     * 执行蒙皮计算（无 UV Morph 的兼容版本）
+     */
+    public void dispatch(int origPosBuffer, int origNorBuffer,
+                         int boneIdxBuffer, int boneWgtBuffer,
+                         int outSkinnedPosBuffer, int outSkinnedNorBuffer,
+                         int boneMatrixSSBO,
+                         int morphOffsetsSSBO, int morphWeightsSSBO,
+                         int vertexCount, int morphCount) {
+        // 无 UV 处理：传 -1 作为 uvMorphCount 哨兵值，shader 中跳过 UV 读写
+        dispatch(origPosBuffer, origNorBuffer,
+                 boneIdxBuffer, boneWgtBuffer,
+                 outSkinnedPosBuffer, outSkinnedNorBuffer,
+                 boneMatrixSSBO,
+                 morphOffsetsSSBO, morphWeightsSSBO,
+                 vertexCount, morphCount,
+                 0, 0, 0, 0, -1);
     }
     
     /**
@@ -355,11 +431,55 @@ public class SkinningComputeShader {
     public static int[] createMorphBuffers(int morphCount) {
         int offsetsSSBO = GL46C.glGenBuffers();
         int weightsSSBO = GL46C.glGenBuffers();
-        // 预分配权重缓冲区
         GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, weightsSSBO);
         GL46C.glBufferData(GL46C.GL_COPY_WRITE_BUFFER, (long) morphCount * 4, GL46C.GL_DYNAMIC_DRAW);
         GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, 0);
         return new int[]{offsetsSSBO, weightsSSBO};
+    }
+    
+    /**
+     * 创建 UV Morph SSBO（每模型实例独立）
+     * 返回 int[2]：{uvMorphOffsetsSSBO, uvMorphWeightsSSBO}
+     */
+    public static int[] createUvMorphBuffers(int uvMorphCount) {
+        int offsetsSSBO = GL46C.glGenBuffers();
+        int weightsSSBO = GL46C.glGenBuffers();
+        GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, weightsSSBO);
+        GL46C.glBufferData(GL46C.GL_COPY_WRITE_BUFFER, (long) uvMorphCount * 4, GL46C.GL_DYNAMIC_DRAW);
+        GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, 0);
+        return new int[]{offsetsSSBO, weightsSSBO};
+    }
+    
+    /**
+     * 创建蒙皮后 UV 输出缓冲区
+     */
+    public static int createSkinnedUvBuffer(int vertexCount) {
+        int buffer = GL46C.glGenBuffers();
+        GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, buffer);
+        GL46C.glBufferData(GL46C.GL_COPY_WRITE_BUFFER, (long) vertexCount * 2 * 4, GL46C.GL_DYNAMIC_COPY);
+        GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, 0);
+        return buffer;
+    }
+    
+    /**
+     * 上传 UV Morph 偏移数据到指定 SSBO
+     */
+    public void uploadUvMorphOffsets(int uvMorphOffsetsSSBO, java.nio.ByteBuffer data) {
+        if (!initialized || uvMorphOffsetsSSBO == 0) return;
+        GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, uvMorphOffsetsSSBO);
+        GL46C.glBufferData(GL46C.GL_COPY_WRITE_BUFFER, data, GL46C.GL_STATIC_DRAW);
+        GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, 0);
+    }
+    
+    /**
+     * 更新 UV Morph 权重到指定 SSBO
+     */
+    public void updateUvMorphWeights(int uvMorphWeightsSSBO, FloatBuffer weights) {
+        if (!initialized || uvMorphWeightsSSBO == 0) return;
+        GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, uvMorphWeightsSSBO);
+        weights.position(0);
+        GL46C.glBufferSubData(GL46C.GL_COPY_WRITE_BUFFER, 0, weights);
+        GL46C.glBindBuffer(GL46C.GL_COPY_WRITE_BUFFER, 0);
     }
     
     public boolean isInitialized() {

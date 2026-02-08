@@ -967,6 +967,65 @@ public class NativeFunc {
      */
     public native void SetMorphWeight(long model, int index, float weight);
     
+    // ========== GPU UV Morph 相关 ==========
+    
+    /**
+     * 初始化 GPU UV Morph 数据
+     * 将稀疏的 UV Morph 偏移转换为密集格式，供 GPU Compute Shader 使用
+     * @param model 模型句柄
+     */
+    public native void InitGpuUvMorphData(long model);
+    
+    /**
+     * 获取 UV Morph 数量
+     * @param model 模型句柄
+     * @return UV Morph 数量
+     */
+    public native int GetUvMorphCount(long model);
+    
+    /**
+     * 获取 GPU UV Morph 偏移数据大小（字节）
+     * @param model 模型句柄
+     * @return 数据大小
+     */
+    public native long GetGpuUvMorphOffsetsSize(long model);
+    
+    /**
+     * 复制 GPU UV Morph 偏移数据到 ByteBuffer
+     * @param model 模型句柄
+     * @param buffer 目标缓冲区
+     * @return 复制的字节数
+     */
+    public native long CopyGpuUvMorphOffsetsToBuffer(long model, java.nio.ByteBuffer buffer);
+    
+    /**
+     * 复制 GPU UV Morph 权重数据到 ByteBuffer
+     * @param model 模型句柄
+     * @param buffer 目标缓冲区
+     * @return 复制的 Morph 数量
+     */
+    public native int CopyGpuUvMorphWeightsToBuffer(long model, java.nio.ByteBuffer buffer);
+    
+    // ========== 材质 Morph 结果相关 ==========
+    
+    /**
+     * 获取材质 Morph 结果数量（等于材质数量）
+     * @param model 模型句柄
+     * @return 材质数量
+     */
+    public native int GetMaterialMorphResultCount(long model);
+    
+    /**
+     * 复制材质 Morph 结果到 ByteBuffer
+     * 每个材质 28 个 float: diffuse(4) + specular(3) + specular_strength(1) +
+     * ambient(3) + edge_color(4) + edge_size(1) + texture_tint(4) +
+     * environment_tint(4) + toon_tint(4)
+     * @param model 模型句柄
+     * @param buffer 目标缓冲区（需要 materialCount * 28 * 4 字节）
+     * @return 材质数量
+     */
+    public native int CopyMaterialMorphResultsToBuffer(long model, java.nio.ByteBuffer buffer);
+    
     // ========== 物理配置相关 ==========
     
     /**

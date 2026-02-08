@@ -266,22 +266,15 @@ public class NativeFunc {
         logger.info("  JAVA_HOME=" + javaHome);
         var javaLibDir = new File(javaHome, "lib");
         var javaLibSoFile = new File(javaLibDir, soFileName);
-        if (javaLibSoFile.exists()) {
-            try {
-                System.load(javaLibSoFile.getAbsolutePath());
-                logger.info("[Android] " + javaLibSoFile.getAbsolutePath() + " 已加载");
-            } catch (Error e) {
-                logger.error("[Android] " + javaLibSoFile.getAbsolutePath() + " 加载失败：" + e.getMessage());
-            }
-        } else if (javaLibDir.canWrite()) {
+        if (javaLibDir.canWrite()) {
             try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
                 Files.copy(is, javaLibSoFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 logger.info("[Android] 已将 libmmd_engine.so 解压至 " + javaLibSoFile.getAbsolutePath());
                 System.load(javaLibSoFile.getAbsolutePath());
                 logger.info("[Android] " + javaLibSoFile.getAbsolutePath() + " 已加载");
                 return;
-            } catch (IOException e) {
-                logger.error(e);
+            } catch (IOException | Error e) {
+                logger.error("[Android] " + javaLibSoFile.getAbsolutePath() + "加载失败：" + e.getMessage());
             }
         } else
             logger.warn("[Android] JAVA_HOME无法写入，跳过。");

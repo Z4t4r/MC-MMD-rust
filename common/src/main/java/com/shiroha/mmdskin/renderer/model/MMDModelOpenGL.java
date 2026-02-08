@@ -293,7 +293,7 @@ public class MMDModelOpenGL implements IMMDModel {
             return;
         }
         Update();
-        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
+        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat, context);
     }
 
     private void renderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
@@ -320,7 +320,7 @@ public class MMDModelOpenGL implements IMMDModel {
         nf.SetModelPositionAndYaw(model, posX, posY, posZ, bodyYaw);
         
         Update();
-        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
+        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat, context);
     }
 
     @Override
@@ -370,7 +370,7 @@ public class MMDModelOpenGL implements IMMDModel {
         nf.UpdateModel(model, deltaTime);
     }
 
-    void RenderModel(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack) {
+    void RenderModel(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack, RenderContext context) {
         Minecraft MCinstance = Minecraft.getInstance();
         
         // 采样玩家位置的环境光照
@@ -402,6 +402,30 @@ public class MMDModelOpenGL implements IMMDModel {
         deliverStack.mulPose(new Quaternionf().rotateX(entityPitch*((float)Math.PI / 180F)));
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
         deliverStack.scale(0.09f, 0.09f, 0.09f);
+        
+        // MC 1.21.1 相机修复：重建模型视图矩阵
+        // PoseStack 已含相机变换，自定义 OpenGL 渲染需手动重建矩阵防止位置随视角漂移
+        if (context.isWorldScene()) {
+            boolean isShadowPass = false;
+            try {
+                ShaderInstance shader = RenderSystem.getShader();
+                if (shader != null && shader.getName().contains("shadow")) {
+                    isShadowPass = true;
+                }
+            } catch (Exception ignored) {}
+            
+            if (!isShadowPass) {
+                PoseStack cameraStack = new PoseStack();
+                cameraStack.setIdentity();
+                cameraStack.mulPose(new Quaternionf().rotateX(
+                    MCinstance.gameRenderer.getMainCamera().getXRot() * ((float)Math.PI / 180F)));
+                cameraStack.mulPose(new Quaternionf().rotateY(
+                    MCinstance.gameRenderer.getMainCamera().getYRot() * ((float)Math.PI / 180F)));
+                cameraStack.mulPose(new Quaternionf().rotateY((float)Math.PI));
+                cameraStack.mulPose(deliverStack.last().pose());
+                deliverStack = cameraStack;
+            }
+        }
         
         // 检查是否启用 Toon 渲染
         boolean useToon = ConfigManager.isToonRenderingEnabled();

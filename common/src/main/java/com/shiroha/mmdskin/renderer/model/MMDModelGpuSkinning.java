@@ -285,7 +285,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
             return;
         }
         Update();
-        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
+        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat, context);
     }
     
     private void renderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
@@ -315,7 +315,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
         nf.SetModelPositionAndYaw(model, posX, posY, posZ, bodyYaw);
         
         Update();
-        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
+        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat, context);
     }
     
     private void Update() {
@@ -333,7 +333,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
         nf.UpdateAnimationOnly(model, deltaTime);
     }
     
-    private void RenderModel(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack) {
+    private void RenderModel(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack, RenderContext context) {
         Minecraft MCinstance = Minecraft.getInstance();
         
         // Iris 兼容：开始 GPU 蒙皮渲染
@@ -341,7 +341,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
         IrisCompat.beginGpuSkinningWithIris();
         
         try {
-            renderModelInternal(entityIn, entityYaw, entityPitch, entityTrans, deliverStack, MCinstance);
+            renderModelInternal(entityIn, entityYaw, entityPitch, entityTrans, deliverStack, MCinstance, context);
         } finally {
             // Iris 兼容：结束 GPU 蒙皮渲染
             // 恢复 framebuffer、着色器程序、SSBO 绑定等状态
@@ -349,7 +349,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
         }
     }
     
-    private void renderModelInternal(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack, Minecraft MCinstance) {
+    private void renderModelInternal(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack, Minecraft MCinstance, RenderContext context) {
         // 光照计算
         MCinstance.level.updateSkyBrightness();
         int blockLight = entityIn.level().getBrightness(LightLayer.BLOCK, entityIn.blockPosition());
@@ -366,6 +366,30 @@ public class MMDModelGpuSkinning implements IMMDModel {
         deliverStack.mulPose(new Quaternionf().rotateX(entityPitch * ((float) Math.PI / 180F)));
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
         deliverStack.scale(0.09f, 0.09f, 0.09f);
+        
+        // MC 1.21.1 相机修复：重建模型视图矩阵
+        // PoseStack 已含相机变换，自定义 OpenGL 渲染需手动重建矩阵防止位置随视角漂移
+        if (context.isWorldScene()) {
+            boolean isShadowPass = false;
+            try {
+                net.minecraft.client.renderer.ShaderInstance shader = RenderSystem.getShader();
+                if (shader != null && shader.getName().contains("shadow")) {
+                    isShadowPass = true;
+                }
+            } catch (Exception ignored) {}
+            
+            if (!isShadowPass) {
+                PoseStack cameraStack = new PoseStack();
+                cameraStack.setIdentity();
+                cameraStack.mulPose(new Quaternionf().rotateX(
+                    MCinstance.gameRenderer.getMainCamera().getXRot() * ((float)Math.PI / 180F)));
+                cameraStack.mulPose(new Quaternionf().rotateY(
+                    MCinstance.gameRenderer.getMainCamera().getYRot() * ((float)Math.PI / 180F)));
+                cameraStack.mulPose(new Quaternionf().rotateY((float)Math.PI));
+                cameraStack.mulPose(deliverStack.last().pose());
+                deliverStack = cameraStack;
+            }
+        }
         
         // 检查是否启用 Toon 渲染（ToonConfig 直接代理 ConfigManager，无需手动同步）
         boolean useToon = ConfigManager.isToonRenderingEnabled();

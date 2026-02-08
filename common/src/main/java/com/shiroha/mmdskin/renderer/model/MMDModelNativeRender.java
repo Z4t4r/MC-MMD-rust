@@ -189,7 +189,7 @@ public class MMDModelNativeRender implements IMMDModel {
             return;
         }
         Update();
-        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, poseStack, packedLight);
+        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, poseStack, packedLight, context);
     }
     
     private void renderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack poseStack, int packedLight, RenderContext context) {
@@ -213,7 +213,7 @@ public class MMDModelNativeRender implements IMMDModel {
         nf.SetModelPositionAndYaw(model, posX, posY, posZ, bodyYaw);
         
         Update();
-        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, poseStack, packedLight);
+        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, poseStack, packedLight, context);
     }
     
     private void Update() {
@@ -236,7 +236,7 @@ public class MMDModelNativeRender implements IMMDModel {
         nf.UpdateModel(model, deltaTime);
     }
     
-    private void RenderModel(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack poseStack, int packedLight) {
+    private void RenderModel(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack poseStack, int packedLight, RenderContext context) {
         Minecraft mc = Minecraft.getInstance();
         
         // 变换矩阵
@@ -245,6 +245,33 @@ public class MMDModelNativeRender implements IMMDModel {
         poseStack.mulPose(new Quaternionf().rotateX(entityPitch * ((float) Math.PI / 180F)));
         poseStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
         poseStack.scale(0.09f, 0.09f, 0.09f);
+        
+        // MC 1.21.1 相机修复：重建模型视图矩阵
+        // pushPose 内修改会在 popPose 时恢复，不影响原始 PoseStack
+        if (context.isWorldScene()) {
+            boolean isShadowPass = false;
+            try {
+                net.minecraft.client.renderer.ShaderInstance shader = RenderSystem.getShader();
+                if (shader != null && shader.getName().contains("shadow")) {
+                    isShadowPass = true;
+                }
+            } catch (Exception ignored) {}
+            
+            if (!isShadowPass) {
+                Matrix4f fullMatrix = new Matrix4f(poseStack.last().pose());
+                // 重置 pose 和 normal 矩阵为单位矩阵
+                poseStack.last().pose().identity();
+                poseStack.last().normal().identity();
+                // 应用相机旋转（mulPose 会同时更新 pose 和 normal）
+                poseStack.mulPose(new Quaternionf().rotateX(
+                    mc.gameRenderer.getMainCamera().getXRot() * ((float)Math.PI / 180F)));
+                poseStack.mulPose(new Quaternionf().rotateY(
+                    mc.gameRenderer.getMainCamera().getYRot() * ((float)Math.PI / 180F)));
+                poseStack.mulPose(new Quaternionf().rotateY((float)Math.PI));
+                // 应用原始完整矩阵（PoseStack.mulPose(Matrix4fc) 会处理法线矩阵）
+                poseStack.mulPose(fullMatrix);
+            }
+        }
         
         // 从 Rust 引擎获取蒙皮后的顶点数据
         int posSize = vertexCount * 12;

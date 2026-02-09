@@ -1,6 +1,8 @@
 package com.shiroha.mmdskin.renderer.core;
 
 import com.shiroha.mmdskin.NativeFunc;
+import com.shiroha.mmdskin.config.ModelConfigData;
+import com.shiroha.mmdskin.config.ModelConfigManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.LivingEntity;
@@ -13,8 +15,8 @@ import net.minecraft.world.entity.LivingEntity;
  */
 public final class EyeTrackingHelper {
     
-    /** 眼球最大转动角度（弧度，约 28.6 度） */
-    private static final float MAX_EYE_ANGLE = 0.5f;
+    /** 眼球最大转动角度（弧度，约 10 度），与 ModelConfigData 默认值一致 */
+    private static final float MAX_EYE_ANGLE = 0.1745f;
     
     /** 最小水平距离阈值，避免除零 */
     private static final float MIN_HORIZONTAL_DIST = 0.01f;
@@ -24,16 +26,43 @@ public final class EyeTrackingHelper {
     }
     
     /**
-     * 更新眼球追踪，使模型眼睛看向摄像头
+     * 更新眼球追踪，使模型眼睛看向摄像头（使用模型独立配置）
      * 
      * @param nf NativeFunc 实例
      * @param modelHandle 模型句柄
      * @param entity 实体
      * @param entityYaw 实体偏航角
      * @param tickDelta 插值因子
+     * @param modelName 模型名称（用于读取模型独立配置）
+     */
+    public static void updateEyeTracking(NativeFunc nf, long modelHandle, 
+            LivingEntity entity, float entityYaw, float tickDelta, String modelName) {
+        
+        // 读取模型独立配置
+        ModelConfigData modelConfig = ModelConfigManager.getConfig(modelName);
+        
+        if (!modelConfig.eyeTrackingEnabled) {
+            nf.SetEyeTrackingEnabled(modelHandle, false);
+            return;
+        }
+        
+        float maxAngle = modelConfig.eyeMaxAngle;
+        updateEyeTrackingInternal(nf, modelHandle, entity, entityYaw, tickDelta, maxAngle);
+    }
+    
+    /**
+     * 更新眼球追踪（使用默认最大角度，向后兼容）
      */
     public static void updateEyeTracking(NativeFunc nf, long modelHandle, 
             LivingEntity entity, float entityYaw, float tickDelta) {
+        updateEyeTrackingInternal(nf, modelHandle, entity, entityYaw, tickDelta, MAX_EYE_ANGLE);
+    }
+    
+    /**
+     * 眼球追踪内部实现
+     */
+    private static void updateEyeTrackingInternal(NativeFunc nf, long modelHandle, 
+            LivingEntity entity, float entityYaw, float tickDelta, float maxAngle) {
         
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.gameRenderer == null) {
@@ -78,12 +107,13 @@ public final class EyeTrackingHelper {
             eyeAngleY = (float) Math.atan2(localX, localZ);
         }
         
-        // 限制角度范围
-        eyeAngleX = Mth.clamp(eyeAngleX, -MAX_EYE_ANGLE, MAX_EYE_ANGLE);
-        eyeAngleY = Mth.clamp(eyeAngleY, -MAX_EYE_ANGLE, MAX_EYE_ANGLE);
+        // 限制角度范围（使用传入的最大角度）
+        eyeAngleX = Mth.clamp(eyeAngleX, -maxAngle, maxAngle);
+        eyeAngleY = Mth.clamp(eyeAngleY, -maxAngle, maxAngle);
         
         // 启用眼球追踪并设置角度
         nf.SetEyeTrackingEnabled(modelHandle, true);
+        nf.SetEyeMaxAngle(modelHandle, maxAngle);
         nf.SetEyeAngle(modelHandle, eyeAngleX, eyeAngleY);
     }
     

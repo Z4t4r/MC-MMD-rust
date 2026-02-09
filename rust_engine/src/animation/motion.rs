@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 
 use super::bezier_curve::BezierCurveCache;
-use super::motion_track::{BoneMotionTrack, MorphMotionTrack, IkMotionTrack, MotionTrack, BoneFrameTransform};
-use super::keyframe::{BoneKeyframe, MorphKeyframe, IkKeyframe};
+use super::motion_track::{BoneMotionTrack, MorphMotionTrack, IkMotionTrack, CameraMotionTrack, MotionTrack, BoneFrameTransform, CameraFrameTransform};
+use super::keyframe::{BoneKeyframe, MorphKeyframe, IkKeyframe, CameraKeyframe};
 
 /// 动画数据
 #[derive(Debug, Clone)]
@@ -17,6 +17,8 @@ pub struct Motion {
     pub morph_tracks: HashMap<String, MorphMotionTrack>,
     /// IK 动画轨道（IK 名称 -> 轨道）
     pub ik_tracks: HashMap<String, IkMotionTrack>,
+    /// 相机动画轨道（单一轨道）
+    pub camera_track: CameraMotionTrack,
     /// 贝塞尔曲线缓存
     bezier_cache: BezierCurveCache,
     /// 是否脏（已修改）
@@ -33,6 +35,7 @@ impl Motion {
             bone_tracks: HashMap::new(),
             morph_tracks: HashMap::new(),
             ik_tracks: HashMap::new(),
+            camera_track: CameraMotionTrack::new(),
             bezier_cache: BezierCurveCache::new(),
             dirty: false,
         }
@@ -52,7 +55,13 @@ impl Motion {
             .max()
             .unwrap_or(0);
         
-        bone_max.max(morph_max)
+        let camera_max = if self.camera_track.is_empty() {
+            0
+        } else {
+            self.camera_track.max_frame_index()
+        };
+        
+        bone_max.max(morph_max).max(camera_max)
     }
 
     /// 插入骨骼关键帧
@@ -71,6 +80,31 @@ impl Motion {
             .or_insert_with(MorphMotionTrack::new)
             .insert_keyframe(keyframe);
         self.dirty = true;
+    }
+
+    /// 插入相机关键帧
+    pub fn insert_camera_keyframe(&mut self, keyframe: CameraKeyframe) {
+        self.camera_track.insert_keyframe(keyframe);
+        self.dirty = true;
+    }
+
+    /// 是否包含相机数据
+    pub fn has_camera_data(&self) -> bool {
+        !self.camera_track.is_empty()
+    }
+
+    /// 获取相机关键帧数量
+    pub fn camera_keyframe_count(&self) -> u32 {
+        self.camera_track.len() as u32
+    }
+
+    /// 获取相机帧变换
+    pub fn find_camera_transform(
+        &self,
+        frame_index: u32,
+        amount: f32,
+    ) -> CameraFrameTransform {
+        self.camera_track.seek_precisely(frame_index, amount, &self.bezier_cache)
     }
 
     /// 插入 IK 关键帧
@@ -182,6 +216,7 @@ impl Motion {
     pub fn clear(&mut self) {
         self.bone_tracks.clear();
         self.morph_tracks.clear();
+        self.camera_track = CameraMotionTrack::new();
         self.dirty = true;
     }
 

@@ -248,8 +248,17 @@ impl MMDPhysics {
             );
         }
         
+        // 判断关联的刚体是否为胸部刚体（任一为胸部则使用胸部参数）
+        let is_bust = self.mmd_rigid_bodies[rb_a_idx].is_bust
+            || self.mmd_rigid_bodies[rb_b_idx].is_bust;
+        
+        // 如果是胸部关节但胸部物理未启用，跳过
+        if is_bust && !get_config().bust_physics_enabled {
+            return None;
+        }
+        
         // 创建 Rapier 关节
-        let joint = mmd_joint.build_joint();
+        let joint = mmd_joint.build_joint(is_bust);
         let joint_handle = self.impulse_joint_set.insert(
             rb_a_handle,
             rb_b_handle,
@@ -262,33 +271,128 @@ impl MMDPhysics {
         Some(index)
     }
     
+    /// 设置胸部-头发碰撞过滤
+    /// 
+    /// 在所有刚体和关节添加完成后调用。
+    /// 收集胸部和头发刚体各自占用的 PMX 碰撞组位，
+    /// 然后从对方的碰撞过滤掩码中清除这些位，
+    /// 使头发碰撞体和胸部碰撞体互不碰撞，避免头发压塌胸部。
+    pub fn setup_bust_hair_collision_filter(&mut self) {
+        // 第一遍：收集胸部和头发刚体各自使用的碰撞组位
+        let mut bust_membership_bits: u32 = 0;
+        let mut hair_membership_bits: u32 = 0;
+        let mut bust_count = 0u32;
+        let mut hair_count = 0u32;
+        
+        for mmd_rb in &self.mmd_rigid_bodies {
+            if mmd_rb.is_bust {
+                bust_membership_bits |= 1 << mmd_rb.group;
+                bust_count += 1;
+            }
+            if mmd_rb.is_hair {
+                hair_membership_bits |= 1 << mmd_rb.group;
+                hair_count += 1;
+            }
+        }
+        
+        // 如果不存在胸部或头发刚体，无需过滤
+        if bust_membership_bits == 0 || hair_membership_bits == 0 {
+            return;
+        }
+        
+        log::info!(
+            "[碰撞过滤] 检测到 {} 个胸部刚体(组位=0x{:04X}), {} 个头发刚体(组位=0x{:04X})，设置互斥碰撞",
+            bust_count, bust_membership_bits, hair_count, hair_membership_bits
+        );
+        
+        // 第二遍：修改碰撞体的碰撞组
+        // - 胸部碰撞体：从 filter 中清除头发组位
+        // - 头发碰撞体：从 filter 中清除胸部组位
+        for mmd_rb in &self.mmd_rigid_bodies {
+            if !mmd_rb.is_bust && !mmd_rb.is_hair {
+                continue;
+            }
+            
+            if let Some(collider_handle) = mmd_rb.collider_handle {
+                if let Some(collider) = self.collider_set.get_mut(collider_handle) {
+                    let current_groups = collider.collision_groups();
+                    let current_membership = current_groups.memberships.bits();
+                    let mut current_filter = current_groups.filter.bits();
+                    
+                    if mmd_rb.is_bust {
+                        // 胸部：不与头发碰撞
+                        current_filter &= !hair_membership_bits;
+                    }
+                    if mmd_rb.is_hair {
+                        // 头发：不与胸部碰撞
+                        current_filter &= !bust_membership_bits;
+                    }
+                    
+                    let new_groups = InteractionGroups::new(
+                        Group::from_bits_truncate(current_membership),
+                        Group::from_bits_truncate(current_filter),
+                    );
+                    collider.set_collision_groups(new_groups);
+                    // solver_groups 也同步修改，确保即使检测到碰撞也不产生力
+                    collider.set_solver_groups(new_groups);
+                }
+            }
+        }
+    }
+    
     /// 更新物理模拟
+    /// 
+    /// 使用时间累积器模式：前 N-1 步使用固定 dt，最后一步消化剩余时间，
+    /// 保证物理模拟时间完整覆盖 delta_time，不丢失任何时间。
     /// 
     /// # 参数
     /// - `delta_time`: 经过的时间（秒）
     pub fn update(&mut self, delta_time: f32) {
         let fixed_dt = 1.0 / self.fps;
-        let num_substeps = ((delta_time / fixed_dt).ceil() as i32).min(self.max_substep_count);
+        let max_steps = self.max_substep_count.max(1);
         
-        for _ in 0..num_substeps {
-            self.physics_pipeline.step(
-                &self.gravity,
-                &self.integration_parameters,
-                &mut self.island_manager,
-                &mut self.broad_phase,
-                &mut self.narrow_phase,
-                &mut self.rigid_body_set,
-                &mut self.collider_set,
-                &mut self.impulse_joint_set,
-                &mut self.multibody_joint_set,
-                &mut self.ccd_solver,
-                None,
-                &(),
-                &(),
-            );
+        // 计算需要多少个固定步
+        let needed_steps = (delta_time / fixed_dt).ceil() as i32;
+        
+        if needed_steps <= max_steps {
+            // 帧率足够高，全部使用固定 dt
+            for _ in 0..needed_steps {
+                self.step_once(fixed_dt);
+            }
+        } else {
+            // 帧率过低，前 (max_steps - 1) 步用固定 dt，最后一步用剩余时间
+            let fixed_steps = max_steps - 1;
+            let consumed = fixed_steps as f32 * fixed_dt;
+            let remaining = delta_time - consumed;
+            
+            for _ in 0..fixed_steps {
+                self.step_once(fixed_dt);
+            }
+            // 最后一步消化剩余时间
+            self.step_once(remaining);
         }
         
         self.clamp_velocities();
+    }
+    
+    /// 执行一次物理步进
+    fn step_once(&mut self, dt: f32) {
+        self.integration_parameters.dt = dt;
+        self.physics_pipeline.step(
+            &self.gravity,
+            &self.integration_parameters,
+            &mut self.island_manager,
+            &mut self.broad_phase,
+            &mut self.narrow_phase,
+            &mut self.rigid_body_set,
+            &mut self.collider_set,
+            &mut self.impulse_joint_set,
+            &mut self.multibody_joint_set,
+            &mut self.ccd_solver,
+            None,
+            &(),
+            &(),
+        );
     }
     
     /// 限制刚体速度，防止物理爆炸

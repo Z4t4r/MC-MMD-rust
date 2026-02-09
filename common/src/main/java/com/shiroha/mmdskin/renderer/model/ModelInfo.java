@@ -18,6 +18,11 @@ import java.util.List;
 public class ModelInfo {
     private static final Logger logger = LogManager.getLogger();
     
+    // 扫描结果缓存
+    private static volatile List<ModelInfo> cachedModels = null;
+    private static volatile long cacheTimestamp = 0;
+    private static final long CACHE_TTL = 5000; // 5 秒缓存有效期
+    
     private final String folderName;      // 文件夹名称（用于显示）
     private final String folderPath;      // 文件夹完整路径
     private final String modelFilePath;   // 模型文件完整路径
@@ -66,6 +71,13 @@ public class ModelInfo {
      * 支持任意名称的 .pmx 和 .pmd 文件
      */
     public static List<ModelInfo> scanModels() {
+        // 检查缓存是否有效
+        long now = System.currentTimeMillis();
+        List<ModelInfo> cached = cachedModels;
+        if (cached != null && (now - cacheTimestamp) < CACHE_TTL) {
+            return cached;
+        }
+        
         List<ModelInfo> models = new ArrayList<>();
         File entityPlayerDir = PathConstants.getEntityPlayerDir();
         
@@ -91,7 +103,20 @@ public class ModelInfo {
         models.sort((a, b) -> a.getFolderName().compareToIgnoreCase(b.getFolderName()));
         
         logger.info("共扫描到 {} 个模型", models.size());
+        
+        // 更新缓存
+        cachedModels = models;
+        cacheTimestamp = System.currentTimeMillis();
+        
         return models;
+    }
+    
+    /**
+     * 使缓存失效（下次调用 scanModels 会重新扫描磁盘）
+     */
+    public static void invalidateCache() {
+        cachedModels = null;
+        cacheTimestamp = 0;
     }
     
     /**

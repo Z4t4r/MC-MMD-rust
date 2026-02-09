@@ -6,7 +6,9 @@
   "refmap": "mmdskin-fabric-refmap.json",
   "mixins": [],
   "client": [
-    "FabricPlayerRendererMixin"
+    "FabricPlayerRendererMixin",
+    "CameraMixin",
+    "GameRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -26,7 +26,8 @@
 		]
 	},
 	"mixins": [
-		"mmdskin-fabric.mixins.json"
+		"mmdskin-fabric.mixins.json",
+		"mmdskin-maid.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=0.15.0",

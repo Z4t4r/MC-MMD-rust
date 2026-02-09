@@ -3,7 +3,7 @@
 //! 存储单个骨骼或 Morph 的所有关键帧，并提供查找和插值功能
 
 use std::collections::BTreeMap;
-use glam::{Vec3, Quat};
+use glam::{Vec3, Quat, Mat4};
 
 use super::bezier_curve::BezierCurveFactory;
 use super::interpolation::{
@@ -480,6 +480,287 @@ impl IkMotionTrack {
 }
 
 impl Default for IkMotionTrack {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 相机帧变换结果
+#[derive(Debug, Clone, Copy)]
+pub struct CameraFrameTransform {
+    /// 相机位置（基于 look_at + distance + angle 计算）
+    pub position: Vec3,
+    /// 相机旋转（欧拉角，弧度：pitch, yaw, roll）
+    pub rotation: Vec3,
+    /// 视场角
+    pub fov: f32,
+    /// 是否透视
+    pub is_perspective: bool,
+}
+
+impl Default for CameraFrameTransform {
+    fn default() -> Self {
+        Self {
+            position: Vec3::ZERO,
+            rotation: Vec3::ZERO,
+            fov: 30.0,
+            is_perspective: true,
+        }
+    }
+}
+
+/// 相机原始插值参数（compute_camera_transform 前的中间表示）
+/// 用于在原始参数层面做帧间插值，避免对 atan2/asin 结果插值导致的不连续跳变
+#[derive(Debug, Clone, Copy)]
+struct CameraRawFrame {
+    look_at: Vec3,
+    angle: Vec3,
+    distance: f32,
+    fov: f32,
+    is_perspective: bool,
+}
+
+impl Default for CameraRawFrame {
+    fn default() -> Self {
+        Self {
+            look_at: Vec3::ZERO,
+            angle: Vec3::ZERO,
+            distance: 0.0,
+            fov: 30.0,
+            is_perspective: true,
+        }
+    }
+}
+
+use super::keyframe::CameraKeyframe;
+
+/// 相机动画轨道（单一轨道，不按名称分）
+#[derive(Debug, Clone)]
+pub struct CameraMotionTrack {
+    /// 关键帧映射（帧索引 -> 关键帧）
+    pub keyframes: BTreeMap<u32, CameraKeyframe>,
+}
+
+impl CameraMotionTrack {
+    pub fn new() -> Self {
+        Self {
+            keyframes: BTreeMap::new(),
+        }
+    }
+
+    /// 插入关键帧
+    pub fn insert_keyframe(&mut self, keyframe: CameraKeyframe) -> Option<CameraKeyframe> {
+        self.keyframes.insert(keyframe.frame_index, keyframe)
+    }
+
+    /// 是否为空
+    pub fn is_empty(&self) -> bool {
+        self.keyframes.is_empty()
+    }
+
+    /// 关键帧数量
+    pub fn len(&self) -> usize {
+        self.keyframes.len()
+    }
+
+    /// 获取最大帧索引
+    pub fn max_frame_index(&self) -> u32 {
+        self.keyframes.keys().last().copied().unwrap_or(0)
+    }
+
+    /// 查找最近的前后关键帧
+    fn search_closest_keyframes(&self, frame_index: u32) -> (Option<&CameraKeyframe>, Option<&CameraKeyframe>) {
+        let mut prev = None;
+        let mut next = None;
+        
+        for (idx, kf) in &self.keyframes {
+            if *idx <= frame_index {
+                prev = Some(kf);
+            } else {
+                next = Some(kf);
+                break;
+            }
+        }
+        
+        (prev, next)
+    }
+
+    /// 从 CameraKeyframe 计算相机位置
+    /// 复刻 mdanceio PerspectiveCamera.update() 的矩阵法：
+    ///   1. angle 直接使用（mdanceio 的 CAMERA_DIRECTION 和 ANGLE_SCALE_FACTOR 双重取反抵消）
+    ///   2. 四元数旋转顺序 z * x * y
+    ///   3. 视图矩阵 = rotation * translation(-look_at)，然后 Z 列加 -distance（DISTANCE_FACTOR=-1）
+    ///   4. 求逆得到世界位置
+    ///   5. 转换到 MC 坐标系（Z 取反）并提取 pitch/yaw
+    fn compute_camera_transform(look_at: Vec3, angle: Vec3, distance: f32, fov: f32, is_perspective: bool) -> CameraFrameTransform {
+        // mdanceio 在 synchronize_camera 中对 angle 乘 CAMERA_DIRECTION(-1,1,1)，
+        // 然后在 camera.update 中再乘 ANGLE_SCALE_FACTOR(-1,1,1)，双重取反抵消。
+        // 因此直接使用 VMD 原始 angle，不做任何缩放。
+
+        // 四元数旋转顺序: z * x * y (mdanceio camera.rs:115-118)
+        let qx = Quat::from_rotation_x(angle.x);
+        let qy = Quat::from_rotation_y(angle.y);
+        let qz = Quat::from_rotation_z(angle.z);
+        let view_orientation = qz * qx * qy;
+
+        // 视图矩阵 = rotation * translation(-look_at)
+        let rot_mat = Mat4::from_quat(view_orientation);
+        let trans_mat = Mat4::from_translation(-look_at);
+        let mut view_matrix = rot_mat * trans_mat;
+
+        // mdanceio project.rs:1135 DISTANCE_FACTOR = -1.0，需要对 distance 取反
+        view_matrix.w_axis.z += -distance;
+
+        // 从视图矩阵求逆提取相机世界位置
+        let inv = view_matrix.inverse();
+        let position_mmd = Vec3::new(inv.w_axis.x, inv.w_axis.y, inv.w_axis.z);
+
+        // MMD → MC 坐标转换（Z 取反）
+        let position_mc = Vec3::new(position_mmd.x, position_mmd.y, -position_mmd.z);
+        let look_at_mc = Vec3::new(look_at.x, look_at.y, -look_at.z);
+
+        // 从相机指向 look_at 的方向提取 MC pitch/yaw
+        let dir = (look_at_mc - position_mc).normalize_or_zero();
+        // MC pitch: 正值 = 朝下看，yaw: 0 = 南(+Z)
+        let mc_pitch = (-dir.y).asin();
+        let mc_yaw = (-dir.x).atan2(dir.z);
+
+        // roll 置零：MC Camera.setRotation() 不支持 roll，VMD angle.z 无法应用
+        CameraFrameTransform {
+            position: position_mc,
+            rotation: Vec3::new(mc_pitch, mc_yaw, 0.0),
+            fov,
+            is_perspective,
+        }
+    }
+
+    /// 求值指定帧的原始参数（整数帧，不经过 compute_camera_transform）
+    fn seek_raw(&self, frame_index: u32, bezier_factory: &dyn BezierCurveFactory) -> CameraRawFrame {
+        if self.keyframes.is_empty() {
+            return CameraRawFrame::default();
+        }
+
+        // 精确匹配
+        if let Some(kf) = self.keyframes.get(&frame_index) {
+            return CameraRawFrame {
+                look_at: kf.look_at,
+                angle: kf.angle,
+                distance: kf.distance,
+                fov: kf.fov,
+                is_perspective: kf.is_perspective,
+            };
+        }
+
+        // 查找前后关键帧
+        let (prev_kf, next_kf) = self.search_closest_keyframes(frame_index);
+
+        match (prev_kf, next_kf) {
+            (Some(prev), Some(next)) => {
+                let interval = next.frame_index - prev.frame_index;
+                let coef = coefficient(prev.frame_index, next.frame_index, frame_index);
+                Self::interpolate_keyframes_raw(prev, next, interval, coef, bezier_factory)
+            }
+            (Some(kf), None) | (None, Some(kf)) => {
+                CameraRawFrame {
+                    look_at: kf.look_at,
+                    angle: kf.angle,
+                    distance: kf.distance,
+                    fov: kf.fov,
+                    is_perspective: kf.is_perspective,
+                }
+            }
+            (None, None) => CameraRawFrame::default(),
+        }
+    }
+
+    /// 求值指定帧（整数帧）
+    pub fn seek(&self, frame_index: u32, bezier_factory: &dyn BezierCurveFactory) -> CameraFrameTransform {
+        let raw = self.seek_raw(frame_index, bezier_factory);
+        Self::compute_camera_transform(raw.look_at, raw.angle, raw.distance, raw.fov, raw.is_perspective)
+    }
+
+    /// 精确求值（支持帧间插值）
+    /// 在原始参数（look_at, angle, distance, fov）层面做帧间线性插值，
+    /// 最后只调用一次 compute_camera_transform，避免对 atan2/asin 结果插值导致的不连续跳变。
+    pub fn seek_precisely(
+        &self,
+        frame_index: u32,
+        amount: f32,
+        bezier_factory: &dyn BezierCurveFactory,
+    ) -> CameraFrameTransform {
+        let f0 = self.seek_raw(frame_index, bezier_factory);
+
+        if amount > 0.0 {
+            let f1 = self.seek_raw(frame_index + 1, bezier_factory);
+
+            let raw = CameraRawFrame {
+                look_at: f0.look_at.lerp(f1.look_at, amount),
+                angle: Vec3::new(
+                    lerp_f32(f0.angle.x, f1.angle.x, amount),
+                    lerp_f32(f0.angle.y, f1.angle.y, amount),
+                    lerp_f32(f0.angle.z, f1.angle.z, amount),
+                ),
+                distance: lerp_f32(f0.distance, f1.distance, amount),
+                fov: lerp_f32(f0.fov, f1.fov, amount),
+                is_perspective: f0.is_perspective,
+            };
+            Self::compute_camera_transform(raw.look_at, raw.angle, raw.distance, raw.fov, raw.is_perspective)
+        } else {
+            Self::compute_camera_transform(f0.look_at, f0.angle, f0.distance, f0.fov, f0.is_perspective)
+        }
+    }
+
+    /// 在两个关键帧之间插值原始参数（使用贝塞尔曲线）
+    fn interpolate_keyframes_raw(
+        prev: &CameraKeyframe,
+        next: &CameraKeyframe,
+        interval: u32,
+        coef: f32,
+        bezier_factory: &dyn BezierCurveFactory,
+    ) -> CameraRawFrame {
+        let interp = &next.interpolation;
+
+        // look_at XYZ 各自贝塞尔插值
+        let ip_x = KeyframeInterpolationPoint::new(&interp.lookat_x);
+        let ip_y = KeyframeInterpolationPoint::new(&interp.lookat_y);
+        let ip_z = KeyframeInterpolationPoint::new(&interp.lookat_z);
+        let ip_angle = KeyframeInterpolationPoint::new(&interp.angle);
+        let ip_distance = KeyframeInterpolationPoint::new(&interp.distance);
+        let ip_fov = KeyframeInterpolationPoint::new(&interp.fov);
+
+        let ax = ip_x.curve_value(interval, coef, bezier_factory);
+        let ay = ip_y.curve_value(interval, coef, bezier_factory);
+        let az = ip_z.curve_value(interval, coef, bezier_factory);
+        let a_angle = ip_angle.curve_value(interval, coef, bezier_factory);
+        let a_distance = ip_distance.curve_value(interval, coef, bezier_factory);
+        let a_fov = ip_fov.curve_value(interval, coef, bezier_factory);
+
+        let look_at = Vec3::new(
+            lerp_f32(prev.look_at.x, next.look_at.x, ax),
+            lerp_f32(prev.look_at.y, next.look_at.y, ay),
+            lerp_f32(prev.look_at.z, next.look_at.z, az),
+        );
+
+        let angle = Vec3::new(
+            lerp_f32(prev.angle.x, next.angle.x, a_angle),
+            lerp_f32(prev.angle.y, next.angle.y, a_angle),
+            lerp_f32(prev.angle.z, next.angle.z, a_angle),
+        );
+
+        let distance = lerp_f32(prev.distance, next.distance, a_distance);
+        let fov = lerp_f32(prev.fov, next.fov, a_fov);
+
+        CameraRawFrame {
+            look_at,
+            angle,
+            distance,
+            fov,
+            is_perspective: prev.is_perspective,
+        }
+    }
+}
+
+impl Default for CameraMotionTrack {
     fn default() -> Self {
         Self::new()
     }

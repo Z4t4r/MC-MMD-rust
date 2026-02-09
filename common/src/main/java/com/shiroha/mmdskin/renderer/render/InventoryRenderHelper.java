@@ -18,31 +18,14 @@ import org.joml.Vector3f;
  */
 public class InventoryRenderHelper {
     
-    private static Boolean isInventoryScreen = null;
-    private static long lastCheckTime = 0;
-    private static final long CACHE_DURATION = 100;
-    
     /**
-     * 检查当前是否在库存屏幕（带缓存）
+     * 检查当前是否在库存屏幕
+     * 直接检测 Minecraft.screen 类型，无需栈帧分析
      */
     public static boolean isInventoryScreen() {
-        long currentTime = System.currentTimeMillis();
-        
-        if (isInventoryScreen != null && (currentTime - lastCheckTime) < CACHE_DURATION) {
-            return isInventoryScreen;
-        }
-        
-        isInventoryScreen = checkInventoryScreen();
-        lastCheckTime = currentTime;
-        return isInventoryScreen;
-    }
-    
-    private static boolean checkInventoryScreen() {
-        StackTraceElement[] steArray = Thread.currentThread().getStackTrace();
-        if (steArray.length <= 6) {
-            return false;
-        }
-        String className = steArray[6].getClassName();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.screen == null) return false;
+        String className = mc.screen.getClass().getName();
         return className.contains("InventoryScreen") || className.contains("class_490");
     }
     
@@ -99,8 +82,4 @@ public class InventoryRenderHelper {
         return quaternion;
     }
     
-    public static void clearCache() {
-        isInventoryScreen = null;
-        lastCheckTime = 0;
-    }
 }

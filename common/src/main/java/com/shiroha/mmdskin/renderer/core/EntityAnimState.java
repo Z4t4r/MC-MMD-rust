@@ -43,6 +43,8 @@ public class EntityAnimState {
         put(State.Die, "die");
         put(State.SwingRight, "swingRight");
         put(State.SwingLeft, "swingLeft");
+        put(State.ItemRight, "itemRight");
+        put(State.ItemLeft, "itemLeft");
         put(State.Sneak, "sneak");
         put(State.OnHorse, "onHorse");
         put(State.Crawl, "crawl");

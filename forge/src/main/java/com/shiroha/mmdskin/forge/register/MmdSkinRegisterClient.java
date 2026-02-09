@@ -6,10 +6,10 @@ import com.shiroha.mmdskin.forge.network.MmdSkinNetworkPack;
 import com.shiroha.mmdskin.maid.MaidActionNetworkHandler;
 import com.shiroha.mmdskin.maid.MaidModelNetworkHandler;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRenderFactory;
-import com.shiroha.mmdskin.ui.ActionWheelNetworkHandler;
-import com.shiroha.mmdskin.ui.ConfigWheelScreen;
-import com.shiroha.mmdskin.ui.MaidConfigWheelScreen;
-import com.shiroha.mmdskin.ui.PlayerModelSyncManager;
+import com.shiroha.mmdskin.ui.network.ActionWheelNetworkHandler;
+import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
+import com.shiroha.mmdskin.ui.wheel.ConfigWheelScreen;
+import com.shiroha.mmdskin.ui.wheel.MaidConfigWheelScreen;
 import com.mojang.blaze3d.platform.InputConstants;
 import java.io.File;
 import net.minecraft.client.Minecraft;
@@ -112,7 +112,7 @@ public class MmdSkinRegisterClient {
         });
         
         // 注册模型选择网络发送器（旧接口，保留向后兼容）
-        com.shiroha.mmdskin.ui.ModelSelectorNetworkHandler.setNetworkSender(modelName -> {
+        com.shiroha.mmdskin.ui.network.ModelSelectorNetworkHandler.setNetworkSender(modelName -> {
             LocalPlayer player = MCinstance.player;
             if (player != null) {
                 // 使用 opCode 3 表示模型变更（字符串参数）
@@ -256,7 +256,7 @@ public class MmdSkinRegisterClient {
         public static void onPlayerLoggedIn(ClientPlayerNetworkEvent.LoggingIn event) {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) {
-                String selectedModel = com.shiroha.mmdskin.ui.ModelSelectorConfig.getInstance()
+                String selectedModel = com.shiroha.mmdskin.ui.config.ModelSelectorConfig.getInstance()
                     .getPlayerModel(mc.player.getName().getString());
                 if (selectedModel != null && !selectedModel.isEmpty() && 
                     !selectedModel.equals(com.shiroha.mmdskin.config.UIConstants.DEFAULT_MODEL_NAME)) {

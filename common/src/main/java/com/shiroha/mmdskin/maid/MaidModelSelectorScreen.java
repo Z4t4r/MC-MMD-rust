@@ -14,32 +14,30 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 女仆 MMD 模型选择界面
- * 
- * 当玩家对着女仆按 H 键时打开此界面，
- * 允许为女仆选择 MMD 模型来替代原版渲染。
+ * 女仆 MMD 模型选择界面 — 简约右侧面板风格
+ * 右侧面板展示模型列表，左侧留空用于模型预览
  */
 public class MaidModelSelectorScreen extends Screen {
     private static final Logger logger = LogManager.getLogger();
     
-    // 布局常量
-    private static final int CARD_WIDTH = 280;
-    private static final int CARD_HEIGHT = 50;
-    private static final int CARD_SPACING = 8;
-    private static final int HEADER_HEIGHT = 70;
-    private static final int FOOTER_HEIGHT = 50;
+    // 右侧面板布局
+    private static final int PANEL_WIDTH = 140;
+    private static final int PANEL_MARGIN = 4;
+    private static final int HEADER_HEIGHT = 40;
+    private static final int FOOTER_HEIGHT = 20;
+    private static final int ITEM_HEIGHT = 14;
+    private static final int ITEM_SPACING = 1;
     
-    // 颜色常量
-    private static final int COLOR_CARD_BG = 0x80000000;
-    private static final int COLOR_CARD_SELECTED = 0x80006600;
-    private static final int COLOR_CARD_HOVER = 0x80333333;
-    private static final int COLOR_CARD_BORDER = 0xFF555555;
-    private static final int COLOR_CARD_BORDER_SELECTED = 0xFF00AA00;
-    private static final int COLOR_TEXT_PRIMARY = 0xFFFFFF;
-    private static final int COLOR_TEXT_SECONDARY = 0xAAAAAA;
-    private static final int COLOR_TEXT_ACCENT = 0x55FF55;
-    private static final int COLOR_FORMAT_PMX = 0xFF6699FF;
-    private static final int COLOR_FORMAT_PMD = 0xFFFF9966;
+    // 女仆主题配色（粉紫色系）
+    private static final int COLOR_PANEL_BG = 0xC0181420;
+    private static final int COLOR_PANEL_BORDER = 0xFF4A2A4A;
+    private static final int COLOR_ITEM_HOVER = 0x30FFFFFF;
+    private static final int COLOR_ITEM_SELECTED = 0x30D060A0;
+    private static final int COLOR_ACCENT = 0xFFD060A0;
+    private static final int COLOR_TEXT = 0xFFDDDDDD;
+    private static final int COLOR_TEXT_DIM = 0xFF888888;
+    private static final int COLOR_TEXT_SELECTED = 0xFFD060A0;
+    private static final int COLOR_SEPARATOR = 0x30FFFFFF;
     
     private final UUID maidUUID;
     private final int maidEntityId;
@@ -50,6 +48,10 @@ public class MaidModelSelectorScreen extends Screen {
     private int maxScroll = 0;
     private String currentModel;
     private int hoveredCardIndex = -1;
+    
+    // 面板区域缓存
+    private int panelX, panelY, panelH;
+    private int listTop, listBottom;
 
     public MaidModelSelectorScreen(UUID maidUUID, int maidEntityId, String maidName) {
         super(Component.translatable("gui.mmdskin.maid_model_selector"));
@@ -83,23 +85,29 @@ public class MaidModelSelectorScreen extends Screen {
     protected void init() {
         super.init();
         
-        // 计算最大滚动距离
-        int contentHeight = modelCards.size() * (CARD_HEIGHT + CARD_SPACING);
-        int visibleHeight = this.height - HEADER_HEIGHT - FOOTER_HEIGHT;
+        // 面板位置：屏幕右侧
+        panelX = this.width - PANEL_WIDTH - PANEL_MARGIN;
+        panelY = PANEL_MARGIN;
+        panelH = this.height - PANEL_MARGIN * 2;
+        
+        listTop = panelY + HEADER_HEIGHT;
+        listBottom = panelY + panelH - FOOTER_HEIGHT;
+        
+        // 计算滚动
+        int contentHeight = modelCards.size() * (ITEM_HEIGHT + ITEM_SPACING);
+        int visibleHeight = listBottom - listTop;
         maxScroll = Math.max(0, contentHeight - visibleHeight);
         scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset));
         
-        // 底部按钮
-        int centerX = this.width / 2;
-        int buttonY = this.height - FOOTER_HEIGHT + 15;
+        // 按钮区域（面板底部紧凑）
+        int btnY = listBottom + 4;
+        int btnW = (PANEL_WIDTH - 12) / 2;
         
         this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), btn -> this.onClose())
-            .bounds(centerX - 100, buttonY, 95, 20)
-            .build());
+            .bounds(panelX + 4, btnY, btnW, 14).build());
         
         this.addRenderableWidget(Button.builder(Component.literal("刷新"), btn -> refreshModels())
-            .bounds(centerX + 5, buttonY, 95, 20)
-            .build());
+            .bounds(panelX + 4 + btnW + 4, btnY, btnW, 14).build());
     }
 
     private void refreshModels() {
@@ -107,6 +115,7 @@ public class MaidModelSelectorScreen extends Screen {
         scrollOffset = 0;
         this.clearWidgets();
         this.init();
+        logger.info("女仆模型列表已刷新");
     }
 
     private void selectModel(ModelCardEntry card) {
@@ -126,125 +135,106 @@ public class MaidModelSelectorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(guiGraphics);
+        // 不渲染全屏背景，保持左侧透明用于模型预览
+        
+        // 右侧面板背景
+        guiGraphics.fill(panelX, panelY, panelX + PANEL_WIDTH, panelY + panelH, COLOR_PANEL_BG);
+        // 面板左边框（视觉分隔）
+        guiGraphics.fill(panelX, panelY, panelX + 1, panelY + panelH, COLOR_PANEL_BORDER);
+        
+        // 头部
         renderHeader(guiGraphics);
-        renderModelCards(guiGraphics, mouseX, mouseY);
+        
+        // 列表
+        renderModelList(guiGraphics, mouseX, mouseY);
+        
+        // 滚动条
         renderScrollbar(guiGraphics);
+        
         super.render(guiGraphics, mouseX, mouseY, partialTick);
     }
 
     private void renderHeader(GuiGraphics guiGraphics) {
-        int centerX = this.width / 2;
+        int cx = panelX + PANEL_WIDTH / 2;
         
         // 标题
-        guiGraphics.drawCenteredString(this.font, 
-            Component.literal("§6女仆 MMD 模型选择"), centerX, 12, COLOR_TEXT_PRIMARY);
+        guiGraphics.drawCenteredString(this.font, this.title, cx, panelY + 4, COLOR_ACCENT);
         
         // 女仆名称
-        guiGraphics.drawCenteredString(this.font, 
-            Component.literal("§7目标女仆: §f" + maidName), centerX, 28, COLOR_TEXT_SECONDARY);
+        String maidInfo = truncate(maidName, 16);
+        guiGraphics.drawCenteredString(this.font, maidInfo, cx, panelY + 16, COLOR_TEXT_DIM);
         
-        // 当前模型
-        String subtitle = String.format("§7共 §f%d §7个模型可用  |  当前: §a%s", 
-            modelCards.size() - 1, currentModel);
-        guiGraphics.drawCenteredString(this.font, Component.literal(subtitle), centerX, 44, COLOR_TEXT_SECONDARY);
+        // 统计
+        String info = (modelCards.size() - 1) + " 模型 · " + truncate(currentModel, 10);
+        guiGraphics.drawCenteredString(this.font, info, cx, panelY + 28, COLOR_TEXT_DIM);
         
         // 分隔线
-        guiGraphics.fill(centerX - 140, HEADER_HEIGHT - 5, centerX + 140, HEADER_HEIGHT - 4, 0x40FFFFFF);
+        guiGraphics.fill(panelX + 8, listTop - 2, panelX + PANEL_WIDTH - 8, listTop - 1, COLOR_SEPARATOR);
     }
 
-    private void renderModelCards(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        int centerX = this.width / 2;
-        int startY = HEADER_HEIGHT;
-        int endY = this.height - FOOTER_HEIGHT;
-        
-        guiGraphics.enableScissor(0, startY, this.width, endY);
+    private void renderModelList(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        guiGraphics.enableScissor(panelX, listTop, panelX + PANEL_WIDTH, listBottom);
         
         hoveredCardIndex = -1;
         
         for (int i = 0; i < modelCards.size(); i++) {
             ModelCardEntry card = modelCards.get(i);
-            int cardY = startY + i * (CARD_HEIGHT + CARD_SPACING) - scrollOffset + CARD_SPACING;
+            int itemY = listTop + i * (ITEM_HEIGHT + ITEM_SPACING) - scrollOffset;
             
-            if (cardY + CARD_HEIGHT < startY || cardY > endY) {
-                continue;
-            }
+            if (itemY + ITEM_HEIGHT < listTop || itemY > listBottom) continue;
             
-            int cardX = centerX - CARD_WIDTH / 2;
+            int itemX = panelX + 6;
+            int itemW = PANEL_WIDTH - 12;
             boolean isSelected = card.displayName.equals(currentModel);
-            boolean isHovered = mouseX >= cardX && mouseX <= cardX + CARD_WIDTH 
-                             && mouseY >= cardY && mouseY <= cardY + CARD_HEIGHT
-                             && mouseY >= startY && mouseY <= endY;
+            boolean isHovered = mouseX >= itemX && mouseX <= itemX + itemW
+                             && mouseY >= Math.max(itemY, listTop) && mouseY <= Math.min(itemY + ITEM_HEIGHT, listBottom);
             
             if (isHovered) {
                 hoveredCardIndex = i;
             }
             
-            renderCard(guiGraphics, card, cardX, cardY, isSelected, isHovered);
+            renderItem(guiGraphics, card, itemX, itemY, itemW, isSelected, isHovered);
         }
         
         guiGraphics.disableScissor();
     }
 
-    private void renderCard(GuiGraphics guiGraphics, ModelCardEntry card, int x, int y, 
-                           boolean isSelected, boolean isHovered) {
-        int bgColor = isSelected ? COLOR_CARD_SELECTED : (isHovered ? COLOR_CARD_HOVER : COLOR_CARD_BG);
-        int borderColor = isSelected ? COLOR_CARD_BORDER_SELECTED : COLOR_CARD_BORDER;
-        
+    private void renderItem(GuiGraphics guiGraphics, ModelCardEntry card, int x, int y, int w, boolean isSelected, boolean isHovered) {
         // 背景
-        guiGraphics.fill(x, y, x + CARD_WIDTH, y + CARD_HEIGHT, bgColor);
+        if (isSelected) {
+            guiGraphics.fill(x, y, x + w, y + ITEM_HEIGHT, COLOR_ITEM_SELECTED);
+            // 左侧选中指示条
+            guiGraphics.fill(x, y + 1, x + 2, y + ITEM_HEIGHT - 1, COLOR_ACCENT);
+        } else if (isHovered) {
+            guiGraphics.fill(x, y, x + w, y + ITEM_HEIGHT, COLOR_ITEM_HOVER);
+        }
         
-        // 边框
-        guiGraphics.fill(x, y, x + CARD_WIDTH, y + 1, borderColor);
-        guiGraphics.fill(x, y + CARD_HEIGHT - 1, x + CARD_WIDTH, y + CARD_HEIGHT, borderColor);
-        guiGraphics.fill(x, y, x + 1, y + CARD_HEIGHT, borderColor);
-        guiGraphics.fill(x + CARD_WIDTH - 1, y, x + CARD_WIDTH, y + CARD_HEIGHT, borderColor);
-        
-        int textX = x + 12;
-        int textY = y + 10;
+        int textX = x + 8;
         
         // 模型名称
-        String displayName = card.displayName;
-        if (displayName.length() > 28) {
-            displayName = displayName.substring(0, 25) + "...";
-        }
-        guiGraphics.drawString(this.font, displayName, textX, textY, COLOR_TEXT_PRIMARY);
+        String displayName = truncate(card.displayName, 16);
+        int nameColor = isSelected ? COLOR_TEXT_SELECTED : COLOR_TEXT;
+        guiGraphics.drawString(this.font, displayName, textX, y + 3, nameColor);
         
-        // 选中标识
+        // 选中标记
         if (isSelected) {
-            guiGraphics.drawString(this.font, "✓", x + CARD_WIDTH - 20, textY, COLOR_TEXT_ACCENT);
-        }
-        
-        // 模型详情
-        int detailY = textY + 14;
-        if (card.modelInfo != null) {
-            String format = card.modelInfo.getFormatDescription();
-            int formatColor = card.modelInfo.isPMD() ? COLOR_FORMAT_PMD : COLOR_FORMAT_PMX;
-            guiGraphics.drawString(this.font, "[" + format + "]", textX, detailY, formatColor);
-            
-            String fileName = card.modelInfo.getModelFileName();
-            if (fileName.length() > 20) {
-                fileName = fileName.substring(0, 17) + "...";
-            }
-            String details = "  " + fileName + "  (" + card.modelInfo.getFormattedSize() + ")";
-            guiGraphics.drawString(this.font, details, textX + 32, detailY, COLOR_TEXT_SECONDARY);
-        } else {
-            guiGraphics.drawString(this.font, "使用女仆模组原版渲染", textX, detailY, COLOR_TEXT_SECONDARY);
+            guiGraphics.drawString(this.font, "\u2713", x + w - 10, y + 3, COLOR_ACCENT);
         }
     }
 
     private void renderScrollbar(GuiGraphics guiGraphics) {
         if (maxScroll <= 0) return;
         
-        int scrollbarX = this.width / 2 + CARD_WIDTH / 2 + 8;
-        int scrollbarY = HEADER_HEIGHT;
-        int scrollbarHeight = this.height - HEADER_HEIGHT - FOOTER_HEIGHT;
+        int barX = panelX + PANEL_WIDTH - 4;
+        int barH = listBottom - listTop;
         
-        guiGraphics.fill(scrollbarX, scrollbarY, scrollbarX + 4, scrollbarY + scrollbarHeight, 0x40FFFFFF);
+        // 轨道
+        guiGraphics.fill(barX, listTop, barX + 2, listBottom, 0x20FFFFFF);
         
-        int thumbHeight = Math.max(20, scrollbarHeight * scrollbarHeight / (scrollbarHeight + maxScroll));
-        int thumbY = scrollbarY + (int)((scrollbarHeight - thumbHeight) * ((float)scrollOffset / maxScroll));
-        guiGraphics.fill(scrollbarX, thumbY, scrollbarX + 4, thumbY + thumbHeight, 0xFFAAAAAA);
+        // 滑块
+        int thumbH = Math.max(16, barH * barH / (barH + maxScroll));
+        int thumbY = listTop + (int)((barH - thumbH) * ((float) scrollOffset / maxScroll));
+        guiGraphics.fill(barX, thumbY, barX + 2, thumbY + thumbH, COLOR_ACCENT);
     }
 
     @Override
@@ -258,8 +248,12 @@ public class MaidModelSelectorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset - (int)(delta * 30)));
-        return true;
+        // 仅面板区域响应滚动
+        if (mouseX >= panelX && mouseX <= panelX + PANEL_WIDTH) {
+            scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset - (int)(delta * 24)));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, delta);
     }
 
     @Override
@@ -274,6 +268,10 @@ public class MaidModelSelectorScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+    
+    private static String truncate(String s, int max) {
+        return s.length() > max ? s.substring(0, max - 2) + ".." : s;
     }
 
     private static class ModelCardEntry {

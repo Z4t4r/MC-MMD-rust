@@ -7,6 +7,7 @@ use jni::objects::{JByteBuffer, JClass, JString};
 use jni::sys::{jboolean, jbyte, jfloat, jint, jlong, jstring};
 use jni::JNIEnv;
 use std::ptr;
+use std::sync::Arc;
 
 use crate::animation::{VmdAnimation, VmdFile};
 use crate::model::load_pmx;
@@ -732,6 +733,127 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_DeleteAnimation(
 ) {
     let mut animations = ANIMATIONS.write().unwrap();
     animations.remove(&anim);
+}
+
+/// 查询动画是否包含相机数据
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_HasCameraData(
+    _env: JNIEnv,
+    _class: JClass,
+    anim: jlong,
+) -> jboolean {
+    let animations = ANIMATIONS.read().unwrap();
+    if let Some(animation) = animations.get(&anim) {
+        if animation.has_camera() { 1u8 } else { 0u8 }
+    } else {
+        0u8
+    }
+}
+
+/// 获取动画最大帧数（包含相机轨道）
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_GetAnimMaxFrame(
+    _env: JNIEnv,
+    _class: JClass,
+    anim: jlong,
+) -> jfloat {
+    let animations = ANIMATIONS.read().unwrap();
+    if let Some(animation) = animations.get(&anim) {
+        animation.max_frame() as jfloat
+    } else {
+        0.0
+    }
+}
+
+/// 获取相机变换数据，写入 ByteBuffer
+/// 布局: pos_x, pos_y, pos_z (3×f32) + rot_x, rot_y, rot_z (3×f32) + fov (f32) + is_perspective (i32) = 32 字节
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_GetCameraTransform(
+    env: JNIEnv,
+    _class: JClass,
+    anim: jlong,
+    frame: jfloat,
+    buffer: JByteBuffer,
+) {
+    let animations = ANIMATIONS.read().unwrap();
+    if let Some(animation) = animations.get(&anim) {
+        let transform = animation.get_camera_transform(frame);
+        
+        if let Ok(dst) = env.get_direct_buffer_address(&buffer) {
+            unsafe {
+                let ptr = dst as *mut f32;
+                // position (3 × f32)
+                *ptr.add(0) = transform.position.x;
+                *ptr.add(1) = transform.position.y;
+                *ptr.add(2) = transform.position.z;
+                // rotation (3 × f32, 欧拉角弧度)
+                *ptr.add(3) = transform.rotation.x;
+                *ptr.add(4) = transform.rotation.y;
+                *ptr.add(5) = transform.rotation.z;
+                // fov (f32)
+                *ptr.add(6) = transform.fov;
+                // is_perspective (i32, 0/1)
+                let i_ptr = ptr.add(7) as *mut i32;
+                *i_ptr = if transform.is_perspective { 1 } else { 0 };
+            }
+        }
+    }
+}
+
+/// 查询动画是否包含骨骼关键帧
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_HasBoneData(
+    _env: JNIEnv,
+    _class: JClass,
+    anim: jlong,
+) -> jboolean {
+    let animations = ANIMATIONS.read().unwrap();
+    if let Some(animation) = animations.get(&anim) {
+        if animation.has_bones() { 1u8 } else { 0u8 }
+    } else {
+        0u8
+    }
+}
+
+/// 查询动画是否包含表情关键帧
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_HasMorphData(
+    _env: JNIEnv,
+    _class: JClass,
+    anim: jlong,
+) -> jboolean {
+    let animations = ANIMATIONS.read().unwrap();
+    if let Some(animation) = animations.get(&anim) {
+        if animation.has_morphs() { 1u8 } else { 0u8 }
+    } else {
+        0u8
+    }
+}
+
+/// 将 source 动画的骨骼和 Morph 数据合并到 target 动画中
+/// 实现方式：克隆 target → 合并 source → 替换回 HashMap
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_MergeAnimation(
+    _env: JNIEnv,
+    _class: JClass,
+    target: jlong,
+    source: jlong,
+) {
+    // 先读取并克隆两个动画，避免借用冲突
+    let (target_clone, source_ref) = {
+        let animations = ANIMATIONS.read().unwrap();
+        let t = animations.get(&target).cloned();
+        let s = animations.get(&source).cloned();
+        (t, s)
+    };
+
+    if let (Some(target_arc), Some(source_arc)) = (target_clone, source_ref) {
+        let mut merged = (*target_arc).clone();
+        merged.merge(&source_arc);
+        // 写回 HashMap，替换原 target
+        let mut animations = ANIMATIONS.write().unwrap();
+        animations.insert(target, Arc::new(merged));
+    }
 }
 
 /// 设置模型全局变换（用于人物移动时传递位置给物理系统）
@@ -2188,6 +2310,158 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_SetMorphWeight(
     }
 }
 
+// ============================================================================
+// GPU UV Morph 相关函数
+// ============================================================================
+
+/// 初始化 GPU UV Morph 数据
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_InitGpuUvMorphData(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.init_gpu_uv_morph_data();
+    }
+}
+
+/// 获取 UV Morph 数量
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_GetUvMorphCount(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jint {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().get_uv_morph_count() as jint)
+        .unwrap_or(0)
+}
+
+/// 获取 GPU UV Morph 偏移数据大小（字节）
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_GetGpuUvMorphOffsetsSize(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().get_gpu_uv_morph_offsets_size() as jlong)
+        .unwrap_or(0)
+}
+
+/// 复制 GPU UV Morph 偏移数据到 ByteBuffer
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_CopyGpuUvMorphOffsetsToBuffer(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    buffer: JByteBuffer,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let size = model.get_gpu_uv_morph_offsets_size();
+        if size == 0 {
+            return 0;
+        }
+        
+        if let Ok(dst) = env.get_direct_buffer_address(&buffer) {
+            unsafe {
+                let src = model.get_gpu_uv_morph_offsets_ptr() as *const u8;
+                ptr::copy_nonoverlapping(src, dst, size);
+            }
+            return size as jlong;
+        }
+    }
+    0
+}
+
+/// 复制 GPU UV Morph 权重数据到 ByteBuffer
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_CopyGpuUvMorphWeightsToBuffer(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    buffer: JByteBuffer,
+) -> jint {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let morph_count = model.get_uv_morph_count();
+        if morph_count == 0 {
+            return 0;
+        }
+        
+        let byte_size = morph_count * 4; // float = 4 bytes
+        if let Ok(dst) = env.get_direct_buffer_address(&buffer) {
+            unsafe {
+                let src = model.get_gpu_uv_morph_weights_ptr() as *const u8;
+                ptr::copy_nonoverlapping(src, dst, byte_size);
+            }
+            return morph_count as jint;
+        }
+    }
+    0
+}
+
+// ============================================================================
+// 材质 Morph 结果相关函数
+// ============================================================================
+
+/// 获取材质 Morph 结果数据（展平为 float 数组）
+/// 每个材质 28 个 float: diffuse(4) + specular(3) + specular_strength(1) +
+/// ambient(3) + edge_color(4) + edge_size(1) + texture_tint(4) +
+/// environment_tint(4) + toon_tint(4)
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_CopyMaterialMorphResultsToBuffer(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    buffer: JByteBuffer,
+) -> jint {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        let result_count = model.get_material_morph_result_count();
+        let flat = model.get_material_morph_results_flat();
+        if flat.is_empty() {
+            return 0;
+        }
+        
+        let byte_size = flat.len() * 4;
+        if let Ok(dst) = env.get_direct_buffer_address(&buffer) {
+            unsafe {
+                let src = flat.as_ptr() as *const u8;
+                ptr::copy_nonoverlapping(src, dst, byte_size);
+            }
+            return result_count as jint;
+        }
+    }
+    0
+}
+
+/// 获取材质 Morph 结果数量
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_GetMaterialMorphResultCount(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jint {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        return model.get_material_morph_result_count() as jint;
+    }
+    0
+}
+
 // ==================== 物理配置相关 ====================
 
 /// 设置全局物理配置（实时调整）
@@ -2212,6 +2486,14 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_SetPhysicsConfig(
     inertia_strength: jfloat,
     max_linear_velocity: jfloat,
     max_angular_velocity: jfloat,
+    bust_physics_enabled: jboolean,
+    bust_linear_damping_scale: jfloat,
+    bust_angular_damping_scale: jfloat,
+    bust_mass_scale: jfloat,
+    bust_linear_spring_stiffness_scale: jfloat,
+    bust_angular_spring_stiffness_scale: jfloat,
+    bust_linear_spring_damping_factor: jfloat,
+    bust_angular_spring_damping_factor: jfloat,
     joints_enabled: jboolean,
     debug_log: jboolean,
 ) {
@@ -2234,6 +2516,14 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_SetPhysicsConfig(
         inertia_strength,
         max_linear_velocity,
         max_angular_velocity,
+        bust_physics_enabled: bust_physics_enabled != 0,
+        bust_linear_damping_scale,
+        bust_angular_damping_scale,
+        bust_mass_scale,
+        bust_linear_spring_stiffness_scale,
+        bust_angular_spring_stiffness_scale,
+        bust_linear_spring_damping_factor,
+        bust_angular_spring_damping_factor,
         joints_enabled: joints_enabled != 0,
         debug_log: debug_log != 0,
     };
@@ -2241,9 +2531,10 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_SetPhysicsConfig(
     set_config(config);
     
     if debug_log != 0 {
-        log::info!("[物理配置] 已更新: 重力={}, FPS={}, 阻尼={}/{}, 刚度={}/{}", 
+        log::info!("[物理配置] 已更新: 重力={}, FPS={}, 阻尼={}/{}, 刚度={}/{}, 胸部启用={}", 
             gravity_y, physics_fps, 
             linear_damping_scale, angular_damping_scale,
-            linear_spring_stiffness_scale, angular_spring_stiffness_scale);
+            linear_spring_stiffness_scale, angular_spring_stiffness_scale,
+            bust_physics_enabled != 0);
     }
 }

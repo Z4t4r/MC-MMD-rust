@@ -102,7 +102,7 @@ public class AnimationStateManager {
     }
     
     private static void updateLayer1Animation(AbstractClientPlayer player, ModelWithEntityData model) {
-        if (!player.isUsingItem() && !player.swinging || player.isSleeping()) {
+        if ((!player.isUsingItem() && !player.swinging) || player.isSleeping()) {
             if (model.entityData.stateLayers[1] != EntityAnimState.State.Idle) {
                 model.entityData.stateLayers[1] = EntityAnimState.State.Idle;
                 model.model.TransitionAnim(0, 1, TRANSITION_TIME);

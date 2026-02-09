@@ -2,8 +2,8 @@ package com.shiroha.mmdskin.renderer.resource;
 
 import com.shiroha.mmdskin.NativeFunc;
 import java.nio.ByteBuffer;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -20,7 +20,7 @@ public class MMDTextureManager {
 
     public static void Init() {
         nf = NativeFunc.GetInst();
-        textures = new HashMap<>();
+        textures = new ConcurrentHashMap<>();
         logger.info("MMDTextureManager 初始化完成");
     }
 

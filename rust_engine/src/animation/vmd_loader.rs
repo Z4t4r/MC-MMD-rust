@@ -14,8 +14,8 @@ use crate::skeleton::BoneManager;
 use crate::morph::MorphManager;
 
 use super::motion::Motion;
-use super::keyframe::{BoneKeyframe, MorphKeyframe, IkKeyframe};
-use super::motion_track::BoneFrameTransform;
+use super::keyframe::{BoneKeyframe, MorphKeyframe, IkKeyframe, CameraKeyframe, CameraInterpolation};
+use super::motion_track::{BoneFrameTransform, CameraFrameTransform};
 
 /// VMD 文件头
 const VMD_HEADER_V1: &[u8] = b"Vocaloid Motion Data file";
@@ -89,10 +89,11 @@ impl VmdFile {
         // 尝试读取相机、光照、阴影和 IK 数据
         // 这些数据可能不存在（较老的 VMD 文件）
         if let Ok(camera_count) = reader.read_u32::<LittleEndian>() {
-            // 跳过相机数据 (每个 61 字节)
+            // 解析相机关键帧 (每个 61 字节)
             for _ in 0..camera_count {
-                let mut buf = [0u8; 61];
-                let _ = reader.read_exact(&mut buf);
+                if let Ok(keyframe) = read_camera_keyframe(reader) {
+                    motion.insert_camera_keyframe(keyframe);
+                }
             }
             
             // 尝试读取光照数据
@@ -257,6 +258,78 @@ fn read_ik_keyframe<R: Read>(reader: &mut R) -> Result<Vec<IkKeyframe>> {
     Ok(keyframes)
 }
 
+/// 读取相机关键帧
+/// VMD 相机数据: 61 字节/帧
+///   frame_index (u32, 4B)
+///   distance (f32, 4B)
+///   look_at (Vec3, 12B)
+///   angle (Vec3, 12B) — 欧拉角，弧度
+///   interpolation (24B) — 6组4字节贝塞尔参数
+///   fov (u32, 4B)
+///   is_perspective (u8, 1B)
+fn read_camera_keyframe<R: Read>(reader: &mut R) -> Result<CameraKeyframe> {
+    // 帧索引
+    let frame_index = reader.read_u32::<LittleEndian>()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera frame index: {}", e)))?;
+
+    // 距离
+    let distance = reader.read_f32::<LittleEndian>()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera distance: {}", e)))?;
+
+    // 目标点 (look_at)
+    let lx = reader.read_f32::<LittleEndian>()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera look_at: {}", e)))?;
+    let ly = reader.read_f32::<LittleEndian>()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera look_at: {}", e)))?;
+    let lz = reader.read_f32::<LittleEndian>()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera look_at: {}", e)))?;
+
+    // 角度（欧拉角，弧度）
+    let ax = reader.read_f32::<LittleEndian>()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera angle: {}", e)))?;
+    let ay = reader.read_f32::<LittleEndian>()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera angle: {}", e)))?;
+    let az = reader.read_f32::<LittleEndian>()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera angle: {}", e)))?;
+
+    // 插值参数 (24 字节 = 6组 * 4字节)
+    // 顺序: X, Y, Z, Rotation, Distance, FOV
+    let mut interp_raw = [0u8; 24];
+    reader.read_exact(&mut interp_raw)
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera interpolation: {}", e)))?;
+
+    let interpolation = CameraInterpolation {
+        lookat_x: [interp_raw[0], interp_raw[1], interp_raw[2], interp_raw[3]],
+        lookat_y: [interp_raw[4], interp_raw[5], interp_raw[6], interp_raw[7]],
+        lookat_z: [interp_raw[8], interp_raw[9], interp_raw[10], interp_raw[11]],
+        angle:    [interp_raw[12], interp_raw[13], interp_raw[14], interp_raw[15]],
+        distance: [interp_raw[16], interp_raw[17], interp_raw[18], interp_raw[19]],
+        fov:      [interp_raw[20], interp_raw[21], interp_raw[22], interp_raw[23]],
+    };
+
+    // FOV (u32)
+    let fov = reader.read_u32::<LittleEndian>()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera fov: {}", e)))? as f32;
+
+    // 是否透视 (u8)
+    let is_perspective = reader.read_u8()
+        .map_err(|e| MmdError::VmdParse(format!("Failed to read camera perspective flag: {}", e)))? == 0;
+
+    // 保留 VMD 原始值（不做坐标系转换，由 compute_camera_transform 统一处理）
+    let look_at = Vec3::new(lx, ly, lz);
+    let angle = Vec3::new(ax, ay, az);
+
+    Ok(CameraKeyframe {
+        frame_index,
+        look_at,
+        angle,
+        distance,
+        fov,
+        is_perspective,
+        interpolation,
+    })
+}
+
 /// 解码 Shift-JIS 字符串
 fn decode_shift_jis(bytes: &[u8]) -> String {
     // 找到第一个 null 字节
@@ -281,6 +354,38 @@ impl VmdAnimation {
         Self {
             motion: vmd.motion,
         }
+    }
+
+    /// 是否包含相机数据
+    pub fn has_camera(&self) -> bool {
+        self.motion.has_camera_data()
+    }
+
+    /// 是否包含骨骼数据
+    pub fn has_bones(&self) -> bool {
+        !self.motion.bone_tracks.is_empty()
+    }
+
+    /// 是否包含表情数据
+    pub fn has_morphs(&self) -> bool {
+        !self.motion.morph_tracks.is_empty()
+    }
+
+    /// 合并另一个动画的骨骼和 Morph 数据
+    pub fn merge(&mut self, other: &VmdAnimation) {
+        self.motion.merge(&other.motion);
+    }
+
+    /// 获取相机帧变换
+    pub fn get_camera_transform(&self, frame: f32) -> CameraFrameTransform {
+        let frame_index = frame.floor() as u32;
+        let amount = frame.fract();
+        self.motion.find_camera_transform(frame_index, amount)
+    }
+
+    /// 获取相机关键帧数量
+    pub fn camera_keyframe_count(&self) -> u32 {
+        self.motion.camera_keyframe_count()
     }
 
     /// 从文件路径加载

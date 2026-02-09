@@ -61,6 +61,20 @@ public interface IMMDModel {
     String GetModelDir();
     
     /**
+     * 获取模型名称（文件夹名）
+     * 默认实现从 modelDir 路径中提取最后一段目录名
+     */
+    default String getModelName() {
+        String dir = GetModelDir();
+        if (dir == null || dir.isEmpty()) return "";
+        // 兼容 / 和 \ 分隔符
+        dir = dir.replace('\\', '/');
+        if (dir.endsWith("/")) dir = dir.substring(0, dir.length() - 1);
+        int lastSlash = dir.lastIndexOf('/');
+        return lastSlash >= 0 ? dir.substring(lastSlash + 1) : dir;
+    }
+    
+    /**
      * 释放模型资源（OpenGL 缓冲区、本地内存等）
      * 实现类应在此方法中清理所有资源
      */

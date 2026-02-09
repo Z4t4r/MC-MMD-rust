@@ -4,9 +4,11 @@ import com.shiroha.mmdskin.MmdSkinClient;
 import com.shiroha.mmdskin.renderer.animation.MMDAnimManager;
 import com.shiroha.mmdskin.renderer.core.EntityAnimState;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
+import com.shiroha.mmdskin.renderer.core.IrisCompat;
 import com.shiroha.mmdskin.renderer.core.ModelCache;
 import com.shiroha.mmdskin.renderer.core.RenderModeManager;
 import com.shiroha.mmdskin.renderer.model.factory.ModelFactoryRegistry;
+import com.shiroha.mmdskin.maid.MaidMMDModelManager;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -50,6 +52,13 @@ public class MMDModelManager {
         ModelCache.CacheEntry<Model> entry = modelCache.get(fullCacheKey);
         if (entry != null) {
             return entry.value;
+        }
+        
+        // 阴影 pass 期间不创建新模型：Iris 阴影渲染时 OpenGL 帧缓冲区状态特殊，
+        // 模型创建中的 glTexImage2D 等纹理操作会导致 AMD 驱动崩溃 (atio6axx.dll EXCEPTION_ACCESS_VIOLATION)。
+        // 返回 null 后，模型会在下一次主渲染 pass 中正常创建。
+        if (IrisCompat.isRenderingShadows()) {
+            return null;
         }
         
         modelCache.checkAndClean(MMDModelManager::disposeModel);
@@ -119,6 +128,7 @@ public class MMDModelManager {
      */
     public static void forceReloadAllModels() {
         modelCache.clear(MMDModelManager::disposeModel);
+        MaidMMDModelManager.invalidateLoadedModels();
         logger.info("强制重载所有模型完成");
     }
     
@@ -146,6 +156,7 @@ public class MMDModelManager {
     
     public static void ReloadModel() {
         modelCache.clear(MMDModelManager::disposeModel);
+        MaidMMDModelManager.invalidateLoadedModels();
         logger.info("模型已重载");
     }
 

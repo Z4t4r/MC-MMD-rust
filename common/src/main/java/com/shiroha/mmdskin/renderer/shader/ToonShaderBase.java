@@ -52,7 +52,15 @@ public abstract class ToonShaderBase {
         uniform float SpecularPower;     // 高光锐度
         uniform float SpecularIntensity; // 高光强度
         
-        out vec4 fragColor;
+        // MRT 多输出：兼容 Iris G-buffer FBO
+        // location 0 → colortex0（漫反射色 + alpha）
+        // location 1 → colortex1（编码法线）
+        // location 2 → colortex2（光照图 / 高光数据）
+        // location 3 → colortex3（保留）
+        layout(location = 0) out vec4 fragColor;
+        layout(location = 1) out vec4 fragData1;
+        layout(location = 2) out vec4 fragData2;
+        layout(location = 3) out vec4 fragData3;
         
         // 色阶化函数
         float toonify(float value, int levels) {
@@ -98,9 +106,13 @@ public abstract class ToonShaderBase {
             float ambient = 0.15;
             finalColor = max(finalColor, texColor.rgb * ambient);
             
-            fragColor = vec4(finalColor, texColor.a);
+            if (texColor.a < 0.004) discard;
             
-            if (fragColor.a < 0.004) discard;
+            // MRT 输出
+            fragColor  = vec4(finalColor, texColor.a);           // 漫反射色
+            fragData1  = vec4(normal * 0.5 + 0.5, 1.0);         // 编码法线 [-1,1]→[0,1]
+            fragData2  = vec4(0.0, 0.0, 0.0, 1.0);              // 光照图占位
+            fragData3  = vec4(0.0, 0.0, 0.0, 1.0);              // 保留
         }
         """;
     
@@ -114,7 +126,11 @@ public abstract class ToonShaderBase {
         
         uniform vec3 OutlineColor;
         
-        out vec4 fragColor;
+        // MRT 多输出：兼容 Iris G-buffer FBO
+        layout(location = 0) out vec4 fragColor;
+        layout(location = 1) out vec4 fragData1;
+        layout(location = 2) out vec4 fragData2;
+        layout(location = 3) out vec4 fragData3;
         
         void main() {
             // 计算视线方向（从片段指向相机）
@@ -127,7 +143,11 @@ public abstract class ToonShaderBase {
                 discard;
             }
             
-            fragColor = vec4(OutlineColor, 1.0);
+            // MRT 输出
+            fragColor  = vec4(OutlineColor, 1.0);                // 描边色
+            fragData1  = vec4(normal * 0.5 + 0.5, 1.0);         // 编码法线
+            fragData2  = vec4(0.0, 0.0, 0.0, 1.0);              // 光照图占位
+            fragData3  = vec4(0.0, 0.0, 0.0, 1.0);              // 保留
         }
         """;
     

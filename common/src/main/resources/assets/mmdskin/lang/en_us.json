@@ -9,6 +9,7 @@
   "gui.mmdskin.config.action_select": "Action Select",
   "gui.mmdskin.config.material_control": "Material Control",
   "gui.mmdskin.config.morph_select": "Expression Select",
+  "gui.mmdskin.config.stage_mode": "Stage Mode",
   "gui.mmdskin.config.mod_settings": "Mod Settings",
   "gui.mmdskin.maid.model_switch": "Model Switch",
   "gui.mmdskin.maid.action_select": "Action Select",
@@ -88,6 +89,22 @@
   "gui.mmdskin.mod_settings.physics_max_angular_velocity.tooltip": "Angular velocity limit to prevent physics explosion",
   "gui.mmdskin.mod_settings.physics_joints_enabled": "Enable Joints",
   "gui.mmdskin.mod_settings.physics_joints_enabled.tooltip": "Disable to let hair fall apart (for debugging)",
+  "gui.mmdskin.mod_settings.physics_bust_enabled": "Enable Bust Physics",
+  "gui.mmdskin.mod_settings.physics_bust_enabled.tooltip": "Use separate physics parameters for bust rigid bodies",
+  "gui.mmdskin.mod_settings.physics_bust_linear_damping": "Bust Linear Damping",
+  "gui.mmdskin.mod_settings.physics_bust_linear_damping.tooltip": "Bust linear damping scale, increase for slower bust movement",
+  "gui.mmdskin.mod_settings.physics_bust_angular_damping": "Bust Angular Damping",
+  "gui.mmdskin.mod_settings.physics_bust_angular_damping.tooltip": "Bust angular damping scale, increase for slower bust rotation",
+  "gui.mmdskin.mod_settings.physics_bust_mass_scale": "Bust Mass Scale",
+  "gui.mmdskin.mod_settings.physics_bust_mass_scale.tooltip": "Bust mass multiplier, increase for heavier bust",
+  "gui.mmdskin.mod_settings.physics_bust_linear_stiffness": "Bust Linear Spring Stiffness",
+  "gui.mmdskin.mod_settings.physics_bust_linear_stiffness.tooltip": "Bust stretch recovery force, needs higher values to maintain shape",
+  "gui.mmdskin.mod_settings.physics_bust_angular_stiffness": "Bust Angular Spring Stiffness",
+  "gui.mmdskin.mod_settings.physics_bust_angular_stiffness.tooltip": "Bust twist recovery force",
+  "gui.mmdskin.mod_settings.physics_bust_linear_spring_damping": "Bust Linear Spring Damping",
+  "gui.mmdskin.mod_settings.physics_bust_linear_spring_damping.tooltip": "Reduce bust bounce",
+  "gui.mmdskin.mod_settings.physics_bust_angular_spring_damping": "Bust Angular Spring Damping",
+  "gui.mmdskin.mod_settings.physics_bust_angular_spring_damping.tooltip": "Reduce bust rotational bounce",
   "gui.mmdskin.mod_settings.physics_debug_log": "Debug Log",
   "gui.mmdskin.mod_settings.physics_debug_log.tooltip": "Output physics system debug logs",
   
@@ -101,5 +118,8 @@
   "key.mmdskin.morph_wheel": "Expression Wheel",
   "gui.mmdskin.morph_wheel": "Expression Wheel",
   "gui.mmdskin.morph_config": "Expression Wheel Config",
-  "gui.mmdskin.reset_morph": "Reset Expression"
+  "gui.mmdskin.reset_morph": "Reset Expression",
+  
+  "gui.mmdskin.stage.cinematic": "Cinema",
+  "gui.mmdskin.stage.start": "Start"
 }

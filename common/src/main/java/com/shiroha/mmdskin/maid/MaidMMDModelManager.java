@@ -149,6 +149,19 @@ public class MaidMMDModelManager {
     }
     
     /**
+     * 使已加载的模型缓存失效（保留绑定关系）
+     * 
+     * 当全局模型缓存被清空时调用，避免持有已释放 GL 资源的旧模型引用。
+     * 下次渲染时会通过懒加载重新创建模型。
+     */
+    public static void invalidateLoadedModels() {
+        if (!loadedModels.isEmpty()) {
+            loadedModels.clear();
+            logger.info("女仆已加载模型缓存已失效，将在下次渲染时重新加载");
+        }
+    }
+    
+    /**
      * 清理所有女仆模型绑定
      */
     public static void clearAll() {

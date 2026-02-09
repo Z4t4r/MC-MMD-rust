@@ -1,4 +1,4 @@
-package com.shiroha.mmdskin.ui;
+package com.shiroha.mmdskin.ui.network;
 
 /**
  * 动作轮盘网络通信抽象接口

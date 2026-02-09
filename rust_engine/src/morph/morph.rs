@@ -1,6 +1,6 @@
 //! Morph 定义
 
-use super::{MorphType, VertexMorphOffset, BoneMorphOffset, MaterialMorphOffset};
+use super::{MorphType, VertexMorphOffset, BoneMorphOffset, MaterialMorphOffset, UvMorphOffset, GroupMorphOffset};
 
 /// Morph 变形
 #[derive(Clone, Debug)]
@@ -18,8 +18,11 @@ pub struct Morph {
     // 材质 Morph
     pub material_offsets: Vec<MaterialMorphOffset>,
     
-    // 组 Morph（引用其他 Morph）
-    pub group_indices: Vec<(u32, f32)>,
+    // UV Morph
+    pub uv_offsets: Vec<UvMorphOffset>,
+    
+    // Group Morph 子项
+    pub group_offsets: Vec<GroupMorphOffset>,
 }
 
 impl Morph {
@@ -31,7 +34,8 @@ impl Morph {
             vertex_offsets: Vec::new(),
             bone_offsets: Vec::new(),
             material_offsets: Vec::new(),
-            group_indices: Vec::new(),
+            uv_offsets: Vec::new(),
+            group_offsets: Vec::new(),
         }
     }
     

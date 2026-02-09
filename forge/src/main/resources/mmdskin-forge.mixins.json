@@ -6,7 +6,9 @@
   "refmap": "mmdskin-forge-refmap.json",
   "mixins": [],
   "client": [
-    "ForgePlayerRendererMixin"
+    "ForgePlayerRendererMixin",
+    "CameraMixin",
+    "GameRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

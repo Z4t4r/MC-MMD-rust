@@ -106,6 +106,21 @@ pub struct MmdModel {
     /// GPU Morph 数据是否已初始化
     gpu_morph_initialized: bool,
     
+    // GPU UV Morph 数据缓冲区
+    /// UV Morph 偏移数据（密集格式：uv_morph_count * vertex_count * 2）
+    gpu_uv_morph_offsets: Vec<f32>,
+    /// UV Morph 权重数组（用于 GPU）
+    gpu_uv_morph_weights: Vec<f32>,
+    /// UV Morph 索引映射（GPU UV Morph 索引 -> MorphManager 索引）
+    uv_morph_indices: Vec<usize>,
+    /// UV Morph 数量
+    uv_morph_count: usize,
+    /// GPU UV Morph 数据是否已初始化
+    gpu_uv_morph_initialized: bool,
+    
+    /// 材质 Morph 结果展平缓存（避免每帧分配）
+    material_morph_results_flat_cache: Vec<f32>,
+    
     // VPD 骨骼姿势覆盖（骨骼索引 -> (位移, 旋转)）
     vpd_bone_overrides: HashMap<usize, (Vec3, Quat)>,
     
@@ -172,6 +187,12 @@ impl MmdModel {
             vertex_morph_indices: Vec::new(),
             vertex_morph_count: 0,
             gpu_morph_initialized: false,
+            gpu_uv_morph_offsets: Vec::new(),
+            gpu_uv_morph_weights: Vec::new(),
+            uv_morph_indices: Vec::new(),
+            uv_morph_count: 0,
+            gpu_uv_morph_initialized: false,
+            material_morph_results_flat_cache: Vec::new(),
             vpd_bone_overrides: HashMap::new(),
             transition_matrices: Vec::new(),
             transition_progress: 0.0,
@@ -274,9 +295,19 @@ impl MmdModel {
                 self.update_positions[i] = vertex.position;
             }
         }
-        // 然后应用 Morph 变形
+        // 应用所有 Morph 变形（顶点/骨骼/材质/UV/Group）
         self.morph_manager
             .apply_morphs(&mut self.bone_manager, &mut self.update_positions);
+        
+        // 将 UV Morph 偏移应用到 UV 缓冲区
+        let uv_deltas = self.morph_manager.get_uv_morph_deltas();
+        if !uv_deltas.is_empty() {
+            for (i, vertex) in self.vertices.iter().enumerate() {
+                if i < self.update_uvs.len() && i < uv_deltas.len() {
+                    self.update_uvs[i] = vertex.uv + uv_deltas[i];
+                }
+            }
+        }
     }
 
     /// 更新骨骼动画（物理前/后）
@@ -1082,6 +1113,137 @@ impl MmdModel {
         self.gpu_morph_initialized
     }
     
+    // ========== GPU UV Morph 相关方法 ==========
+    
+    /// 初始化 GPU UV Morph 数据
+    /// 将稀疏的 UV Morph 偏移转换为密集格式，供 GPU Compute Shader 使用
+    pub fn init_gpu_uv_morph_data(&mut self) {
+        if self.gpu_uv_morph_initialized {
+            return;
+        }
+        
+        let vertex_count = self.vertices.len();
+        
+        // 收集所有 UV 类型的 Morph 索引
+        self.uv_morph_indices = (0..self.morph_manager.morph_count())
+            .filter_map(|i| {
+                let morph = self.morph_manager.get_morph(i)?;
+                if (morph.morph_type == crate::morph::MorphType::Uv
+                    || morph.morph_type == crate::morph::MorphType::AdditionalUv1)
+                    && !morph.uv_offsets.is_empty()
+                {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        self.uv_morph_count = self.uv_morph_indices.len();
+        
+        if self.uv_morph_count == 0 {
+            log::info!("模型没有 UV Morph，跳过 GPU UV Morph 初始化");
+            self.gpu_uv_morph_initialized = true;
+            return;
+        }
+        
+        // 分配密集格式的偏移数据：uv_morph_count * vertex_count * 2 (uv)
+        let total_floats = self.uv_morph_count * vertex_count * 2;
+        self.gpu_uv_morph_offsets = vec![0.0f32; total_floats];
+        self.gpu_uv_morph_weights = vec![0.0f32; self.uv_morph_count];
+        
+        // 填充稀疏数据到密集格式
+        for (morph_idx, &global_morph_idx) in self.uv_morph_indices.iter().enumerate() {
+            if let Some(morph) = self.morph_manager.get_morph(global_morph_idx) {
+                let base_offset = morph_idx * vertex_count * 2;
+                for offset in &morph.uv_offsets {
+                    let vid = offset.vertex_index as usize;
+                    if vid < vertex_count {
+                        let idx = base_offset + vid * 2;
+                        self.gpu_uv_morph_offsets[idx] = offset.offset.x;
+                        self.gpu_uv_morph_offsets[idx + 1] = offset.offset.y;
+                    }
+                }
+            }
+        }
+        
+        self.gpu_uv_morph_initialized = true;
+        log::info!(
+            "GPU UV Morph 数据初始化完成: {} 个 UV Morph, 数据大小 {:.2} KB",
+            self.uv_morph_count,
+            (total_floats * 4) as f64 / 1024.0
+        );
+    }
+    
+    /// 同步 GPU UV Morph 权重
+    pub fn sync_gpu_uv_morph_weights(&mut self) {
+        if !self.gpu_uv_morph_initialized || self.uv_morph_count == 0 {
+            return;
+        }
+        for (gpu_idx, &morph_idx) in self.uv_morph_indices.iter().enumerate() {
+            if gpu_idx < self.gpu_uv_morph_weights.len() {
+                if let Some(morph) = self.morph_manager.get_morph(morph_idx) {
+                    self.gpu_uv_morph_weights[gpu_idx] = morph.weight;
+                }
+            }
+        }
+    }
+    
+    /// 获取 UV Morph 数量
+    pub fn get_uv_morph_count(&self) -> usize {
+        self.uv_morph_count
+    }
+    
+    /// 获取 GPU UV Morph 偏移数据指针
+    pub fn get_gpu_uv_morph_offsets_ptr(&self) -> *const f32 {
+        self.gpu_uv_morph_offsets.as_ptr()
+    }
+    
+    /// 获取 GPU UV Morph 偏移数据大小（字节）
+    pub fn get_gpu_uv_morph_offsets_size(&self) -> usize {
+        self.gpu_uv_morph_offsets.len() * 4
+    }
+    
+    /// 获取 GPU UV Morph 权重数据指针
+    pub fn get_gpu_uv_morph_weights_ptr(&self) -> *const f32 {
+        self.gpu_uv_morph_weights.as_ptr()
+    }
+    
+    /// GPU UV Morph 是否已初始化
+    pub fn is_gpu_uv_morph_initialized(&self) -> bool {
+        self.gpu_uv_morph_initialized
+    }
+    
+    // ========== 材质 Morph 结果访问 ==========
+    
+    /// 获取材质 Morph 结果数量
+    pub fn get_material_morph_result_count(&self) -> usize {
+        self.morph_manager.get_material_morph_results().len()
+    }
+    
+    /// 获取材质 Morph 结果展平数据（每材质 28 个 float）
+    /// 布局：diffuse(4) + specular(3) + specular_strength(1) +
+    /// ambient(3) + edge_color(4) + edge_size(1) + texture_tint(4) +
+    /// environment_tint(4) + toon_tint(4) = 28 floats
+    pub fn get_material_morph_results_flat(&mut self) -> &[f32] {
+        let results = self.morph_manager.get_material_morph_results();
+        let expected_len = results.len() * 28;
+        self.material_morph_results_flat_cache.clear();
+        self.material_morph_results_flat_cache.reserve(expected_len);
+        for r in results {
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.diffuse.x, r.diffuse.y, r.diffuse.z, r.diffuse.w]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.specular.x, r.specular.y, r.specular.z]);
+            self.material_morph_results_flat_cache.push(r.specular_strength);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.ambient.x, r.ambient.y, r.ambient.z]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.edge_color.x, r.edge_color.y, r.edge_color.z, r.edge_color.w]);
+            self.material_morph_results_flat_cache.push(r.edge_size);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.texture_tint.x, r.texture_tint.y, r.texture_tint.z, r.texture_tint.w]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.environment_tint.x, r.environment_tint.y, r.environment_tint.z, r.environment_tint.w]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.toon_tint.x, r.toon_tint.y, r.toon_tint.z, r.toon_tint.w]);
+        }
+        &self.material_morph_results_flat_cache
+    }
+    
     // ========== VPD 骨骼姿势覆盖 ==========
     
     /// 设置 VPD 骨骼姿势覆盖
@@ -1115,14 +1277,16 @@ impl MmdModel {
         // 应用 VPD 骨骼姿势覆盖（在动画评估后）
         self.apply_vpd_bone_overrides();
         
-        // 自动眨眼（如果眨眼中则同步 GPU Morph 权重）
-        let blink_needs_sync = self.update_auto_blink(elapsed);
-        if blink_needs_sync {
-            self.sync_gpu_morph_weights();
-        }
+        // 自动眨眼
+        self.update_auto_blink(elapsed);
         
         self.apply_head_rotation();
         self.update_morph_animation();
+        
+        // Morph 应用后同步 GPU 权重（顶点 Morph + UV Morph）
+        self.sync_gpu_morph_weights();
+        self.sync_gpu_uv_morph_weights();
+        
         self.update_node_animation(false);
         
         // 记录物理更新前的动态骨骼数量
@@ -1172,6 +1336,9 @@ impl MmdModel {
         for pmx_joint in &self.joints {
             physics.add_joint(pmx_joint);
         }
+        
+        // 设置胸部-头发碰撞过滤（防止头发压塌胸部）
+        physics.setup_bust_hair_collision_filter();
         
         // 统计刚体类型
         use crate::physics::RigidBodyType;
@@ -1283,8 +1450,8 @@ impl MmdModel {
                     RigidBodyType::DynamicWithBonePosition => "DynamicWithBonePosition",
                 };
                 info.push_str(&format!(
-                    "    {{\"index\": {}, \"name\": \"{}\", \"type\": \"{}\", \"bone\": {}, \"mass\": {:.3}}}",
-                    i, rb.name, type_str, rb.bone_index, rb.mass
+                    "    {{\"index\": {}, \"name\": \"{}\", \"type\": \"{}\", \"bone\": {}, \"mass\": {:.3}, \"is_bust\": {}}}",
+                    i, rb.name, type_str, rb.bone_index, rb.mass, rb.is_bust
                 ));
                 if i < physics.mmd_rigid_bodies.len() - 1 {
                     info.push_str(",\n");

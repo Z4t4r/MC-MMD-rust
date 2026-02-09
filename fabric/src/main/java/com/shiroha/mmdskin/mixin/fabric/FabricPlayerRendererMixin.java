@@ -11,7 +11,7 @@ import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager.ModelWithEntityData;
 import com.shiroha.mmdskin.renderer.render.InventoryRenderHelper;
 import com.shiroha.mmdskin.renderer.render.ItemRenderHelper;
-import com.shiroha.mmdskin.ui.PlayerModelSyncManager;
+import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 
 import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.player.AbstractClientPlayer;

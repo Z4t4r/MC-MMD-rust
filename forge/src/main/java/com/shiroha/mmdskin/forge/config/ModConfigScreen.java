@@ -371,6 +371,88 @@ public class ModConfigScreen {
             .setSaveConsumer(value -> data.physicsJointsEnabled = value)
             .build());
         
+        // ==================== 胸部物理设置 ====================
+        // 胸部物理启用
+        physicsCategory.addEntry(entryBuilder
+            .startBooleanToggle(
+                Component.translatable("gui.mmdskin.mod_settings.physics_bust_enabled"),
+                data.physicsBustEnabled)
+            .setDefaultValue(true)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_enabled.tooltip"))
+            .setSaveConsumer(value -> data.physicsBustEnabled = value)
+            .build());
+        
+        // 胸部线性阻尼
+        physicsCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_damping"),
+                (int)(data.physicsBustLinearDampingScale * 100), 0, 500)
+            .setDefaultValue(150)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_damping.tooltip"))
+            .setSaveConsumer(value -> data.physicsBustLinearDampingScale = value / 100.0f)
+            .build());
+        
+        // 胸部角速度阻尼
+        physicsCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_damping"),
+                (int)(data.physicsBustAngularDampingScale * 100), 0, 500)
+            .setDefaultValue(150)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_damping.tooltip"))
+            .setSaveConsumer(value -> data.physicsBustAngularDampingScale = value / 100.0f)
+            .build());
+        
+        // 胸部质量缩放
+        physicsCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.physics_bust_mass_scale"),
+                (int)(data.physicsBustMassScale * 10), 1, 100)
+            .setDefaultValue(10)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_mass_scale.tooltip"))
+            .setSaveConsumer(value -> data.physicsBustMassScale = value / 10.0f)
+            .build());
+        
+        // 胸部线性弹簧刚度
+        physicsCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_stiffness"),
+                (int)(data.physicsBustLinearSpringStiffnessScale * 10), 1, 200)
+            .setDefaultValue(80)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_stiffness.tooltip"))
+            .setSaveConsumer(value -> data.physicsBustLinearSpringStiffnessScale = value / 10.0f)
+            .build());
+        
+        // 胸部角度弹簧刚度
+        physicsCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_stiffness"),
+                (int)(data.physicsBustAngularSpringStiffnessScale * 10), 1, 200)
+            .setDefaultValue(80)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_stiffness.tooltip"))
+            .setSaveConsumer(value -> data.physicsBustAngularSpringStiffnessScale = value / 10.0f)
+            .build());
+        
+        // 胸部线性弹簧阻尼
+        physicsCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_spring_damping"),
+                (int)(data.physicsBustLinearSpringDampingFactor * 10), 1, 100)
+            .setDefaultValue(30)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_spring_damping.tooltip"))
+            .setSaveConsumer(value -> data.physicsBustLinearSpringDampingFactor = value / 10.0f)
+            .build());
+        
+        // 胸部角度弹簧阻尼
+        physicsCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_spring_damping"),
+                (int)(data.physicsBustAngularSpringDampingFactor * 10), 1, 100)
+            .setDefaultValue(30)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_spring_damping.tooltip"))
+            .setSaveConsumer(value -> data.physicsBustAngularSpringDampingFactor = value / 10.0f)
+            .build());
+        
+        // ==================== 调试设置 ====================
         // 调试日志
         physicsCategory.addEntry(entryBuilder
             .startBooleanToggle(
@@ -404,6 +486,14 @@ public class ModConfigScreen {
                     data.physicsInertiaStrength,
                     data.physicsMaxLinearVelocity,
                     data.physicsMaxAngularVelocity,
+                    data.physicsBustEnabled,
+                    data.physicsBustLinearDampingScale,
+                    data.physicsBustAngularDampingScale,
+                    data.physicsBustMassScale,
+                    data.physicsBustLinearSpringStiffnessScale,
+                    data.physicsBustAngularSpringStiffnessScale,
+                    data.physicsBustLinearSpringDampingFactor,
+                    data.physicsBustAngularSpringDampingFactor,
                     data.physicsJointsEnabled,
                     data.physicsDebugLog
                 );

@@ -4,7 +4,9 @@ import com.shiroha.mmdskin.renderer.animation.MMDAnimManager;
 import com.shiroha.mmdskin.renderer.core.EntityAnimState;
 import com.shiroha.mmdskin.renderer.core.RenderContext;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.world.entity.LivingEntity;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,6 +59,13 @@ public class MaidMMDRenderer {
             // 女仆实体不使用 pitch 旋转整个模型（避免移动时倾斜）
             // 只使用 yaw 控制朝向，pitch 保持 0
             float entityPitch = 0.0f;
+            
+            // 应用模型缩放
+            float modelSize = getModelSize(modelData);
+            poseStack.scale(modelSize, modelSize, modelSize);
+            
+            // 设置正确的 shader（避免使用 Orihime BedrockModel 留下的 shader 导致 flat shading）
+            RenderSystem.setShader(GameRenderer::getRendertypeEntityTranslucentShader);
             
             // 渲染模型
             modelData.model.render(entity, entityYaw, entityPitch, entityTrans, partialTicks, poseStack, packedLight, RenderContext.WORLD);
@@ -138,6 +147,23 @@ public class MaidMMDRenderer {
         }
         
         return new Vector3f(x, y, z);
+    }
+    
+    /**
+     * 获取模型缩放大小
+     */
+    private static float getModelSize(MMDModelManager.Model modelData) {
+        if (modelData.properties != null) {
+            String value = modelData.properties.getProperty("size");
+            if (value != null) {
+                try {
+                    return Float.parseFloat(value);
+                } catch (NumberFormatException e) {
+                    // 使用默认值
+                }
+            }
+        }
+        return 1.0f;
     }
     
     /**

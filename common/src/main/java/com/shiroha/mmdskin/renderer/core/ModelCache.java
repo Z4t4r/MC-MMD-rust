@@ -7,7 +7,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -20,7 +19,6 @@ public class ModelCache<T> {
     private static final Logger logger = LogManager.getLogger();
     
     private final Map<String, CacheEntry<T>> cache;
-    private final AtomicInteger cacheSize;
     private final String cacheName;
     
     private long lastSwitchTime = 0;
@@ -30,7 +28,6 @@ public class ModelCache<T> {
     public ModelCache(String name) {
         this.cacheName = name;
         this.cache = new ConcurrentHashMap<>();
-        this.cacheSize = new AtomicInteger(0);
     }
     
     /**
@@ -50,19 +47,14 @@ public class ModelCache<T> {
     public void put(String key, T value) {
         CacheEntry<T> entry = new CacheEntry<>(value);
         cache.put(key, entry);
-        cacheSize.incrementAndGet();
-        logger.debug("[{}] 添加缓存: {} (当前: {})", cacheName, key, cacheSize.get());
+        logger.debug("[{}] 添加缓存: {} (当前: {})", cacheName, key, cache.size());
     }
     
     /**
      * 移除缓存项
      */
     public CacheEntry<T> remove(String key) {
-        CacheEntry<T> entry = cache.remove(key);
-        if (entry != null) {
-            cacheSize.decrementAndGet();
-        }
-        return entry;
+        return cache.remove(key);
     }
     
     /**
@@ -76,7 +68,7 @@ public class ModelCache<T> {
      * 获取缓存大小
      */
     public int size() {
-        return cacheSize.get();
+        return cache.size();
     }
     
     /**
@@ -110,7 +102,7 @@ public class ModelCache<T> {
      */
     public void checkAndClean(Consumer<T> disposer) {
         int maxSize = ConfigManager.getModelPoolMaxCount();
-        if (cacheSize.get() >= maxSize) {
+        if (cache.size() >= maxSize) {
             cleanupLRU(maxSize, disposer);
         }
     }
@@ -134,7 +126,6 @@ public class ModelCache<T> {
                         disposer.accept(entry.getValue().value);
                     }
                     cache.remove(entry.getKey());
-                    cacheSize.decrementAndGet();
                 } catch (Exception e) {
                     logger.error("[{}] 清理失败: {}", cacheName, entry.getKey(), e);
                 }
@@ -161,7 +152,6 @@ public class ModelCache<T> {
                         disposer.accept(entry.getValue().value);
                     }
                     iterator.remove();
-                    cacheSize.decrementAndGet();
                     cleanedCount++;
                 } catch (Exception e) {
                     logger.error("[{}] 清理失败: {}", cacheName, entry.getKey(), e);
@@ -190,7 +180,6 @@ public class ModelCache<T> {
             }
         }
         cache.clear();
-        cacheSize.set(0);
         logger.info("[{}] 缓存已清空", cacheName);
     }
     

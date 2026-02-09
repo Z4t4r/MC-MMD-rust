@@ -212,6 +212,10 @@ pub fn load_pmx<P: AsRef<Path>>(path: P) -> Result<MmdModel> {
     model.bone_manager = bone_manager;
     model.morph_manager = morph_manager;
     
+    // 初始化 Morph 系统缓冲区（材质 Morph 结果 + UV Morph 偏移）
+    model.morph_manager.set_material_count(model.materials.len());
+    model.morph_manager.set_vertex_count(model.vertices.len());
+    
     // 初始化材质可见性（默认全部可见）
     model.init_material_visibility();
 
@@ -242,43 +246,98 @@ fn normalize_path(path: &Path) -> String {
 /// 转换 PMX Morph 到内部格式
 fn convert_pmx_morph(pmx_morph: &mmd::pmx::morph::Morph<DefaultConfig>) -> crate::morph::Morph {
     use mmd::pmx::morph::Offsets;
-    use crate::morph::{Morph, MorphType, VertexMorphOffset, BoneMorphOffset};
+    use crate::morph::{
+        Morph, MorphType, VertexMorphOffset, BoneMorphOffset,
+        MaterialMorphOffset, UvMorphOffset, GroupMorphOffset,
+    };
     
-    let (morph_type, vertex_offsets, bone_offsets) = match &pmx_morph.offsets {
+    let morph = match &pmx_morph.offsets {
         Offsets::Vertex(offsets) => {
-            let verts: Vec<VertexMorphOffset> = offsets.iter().map(|o| {
+            let mut m = Morph::new(pmx_morph.local_name.clone(), MorphType::Vertex);
+            m.vertex_offsets = offsets.iter().map(|o| {
                 VertexMorphOffset {
                     vertex_index: o.vertex as u32,
-                    // 翻转 Z 轴以匹配坐标系转换
                     offset: Vec3::new(o.offset[0], o.offset[1], -o.offset[2]),
                 }
             }).collect();
-            (MorphType::Vertex, verts, Vec::new())
+            m
         }
         Offsets::Bone(offsets) => {
-            let bones: Vec<BoneMorphOffset> = offsets.iter().map(|o| {
+            let mut m = Morph::new(pmx_morph.local_name.clone(), MorphType::Bone);
+            m.bone_offsets = offsets.iter().map(|o| {
                 BoneMorphOffset {
                     bone_index: o.bone as u32,
                     translation: Vec3::new(o.translation[0], o.translation[1], -o.translation[2]),
                     rotation: Vec4::new(o.rotation[0], o.rotation[1], -o.rotation[2], o.rotation[3]),
                 }
             }).collect();
-            (MorphType::Bone, Vec::new(), bones)
+            m
         }
-        Offsets::Group(_) => (MorphType::Group, Vec::new(), Vec::new()),
-        Offsets::UV(_) => (MorphType::Uv, Vec::new(), Vec::new()),
-        Offsets::AdditionalUV1(_) => (MorphType::AdditionalUv1, Vec::new(), Vec::new()),
-        Offsets::AdditionalUV2(_) => (MorphType::AdditionalUv2, Vec::new(), Vec::new()),
-        Offsets::AdditionalUV3(_) => (MorphType::AdditionalUv3, Vec::new(), Vec::new()),
-        Offsets::AdditionalUV4(_) => (MorphType::AdditionalUv4, Vec::new(), Vec::new()),
-        Offsets::Material(_) => (MorphType::Material, Vec::new(), Vec::new()),
-        Offsets::Flip(_) => (MorphType::Flip, Vec::new(), Vec::new()),
-        Offsets::Impulse(_) => (MorphType::Impulse, Vec::new(), Vec::new()),
+        Offsets::Group(offsets) => {
+            let mut m = Morph::new(pmx_morph.local_name.clone(), MorphType::Group);
+            m.group_offsets = offsets.iter().map(|o| {
+                GroupMorphOffset {
+                    morph_index: o.morph as u32,
+                    influence: o.influence,
+                }
+            }).collect();
+            m
+        }
+        Offsets::Material(offsets) => {
+            let mut m = Morph::new(pmx_morph.local_name.clone(), MorphType::Material);
+            m.material_offsets = offsets.iter().map(|o| {
+                MaterialMorphOffset {
+                    material_index: o.material,
+                    operation: o.method as u8,
+                    diffuse: vec4_from_arr(o.diffuse_color),
+                    specular: vec3_from_arr(o.specular_color),
+                    specular_strength: o.specular_strength,
+                    ambient: vec3_from_arr(o.ambient_color),
+                    edge_color: vec4_from_arr(o.edge_color),
+                    edge_size: o.edge_scale,
+                    texture_tint: vec4_from_arr(o.texture_tint),
+                    environment_tint: vec4_from_arr(o.environment_tint),
+                    toon_tint: vec4_from_arr(o.toon_tint),
+                }
+            }).collect();
+            m
+        }
+        Offsets::UV(offsets) => {
+            let mut m = Morph::new(pmx_morph.local_name.clone(), MorphType::Uv);
+            m.uv_offsets = offsets.iter().map(|o| {
+                UvMorphOffset {
+                    vertex_index: o.vertex as u32,
+                    offset: vec4_from_arr(o.offset),
+                }
+            }).collect();
+            m
+        }
+        Offsets::AdditionalUV1(offsets) => {
+            let mut m = Morph::new(pmx_morph.local_name.clone(), MorphType::AdditionalUv1);
+            m.uv_offsets = offsets.iter().map(|o| {
+                UvMorphOffset {
+                    vertex_index: o.vertex as u32,
+                    offset: vec4_from_arr(o.offset),
+                }
+            }).collect();
+            m
+        }
+        Offsets::AdditionalUV2(_) => Morph::new(pmx_morph.local_name.clone(), MorphType::AdditionalUv2),
+        Offsets::AdditionalUV3(_) => Morph::new(pmx_morph.local_name.clone(), MorphType::AdditionalUv3),
+        Offsets::AdditionalUV4(_) => Morph::new(pmx_morph.local_name.clone(), MorphType::AdditionalUv4),
+        Offsets::Flip(offsets) => {
+            let mut m = Morph::new(pmx_morph.local_name.clone(), MorphType::Flip);
+            m.group_offsets = offsets.iter().map(|o| {
+                GroupMorphOffset {
+                    morph_index: o.morph as u32,
+                    influence: o.influence,
+                }
+            }).collect();
+            m
+        }
+        Offsets::Impulse(_) => Morph::new(pmx_morph.local_name.clone(), MorphType::Impulse),
     };
     
-    let mut morph = Morph::new(pmx_morph.local_name.clone(), morph_type);
-    morph.vertex_offsets = vertex_offsets;
-    morph.bone_offsets = bone_offsets;
     morph
 }
 

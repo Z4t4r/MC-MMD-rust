@@ -13,8 +13,8 @@ mod animation_layer;
 
 pub use bezier_curve::{BezierCurve, BezierCurveCache, Curve};
 pub use interpolation::{KeyframeInterpolationPoint, BoneKeyframeInterpolation};
-pub use keyframe::{BoneKeyframe, MorphKeyframe, CameraKeyframe};
-pub use motion_track::{MotionTrack, BoneMotionTrack, MorphMotionTrack, BoneFrameTransform};
+pub use keyframe::{BoneKeyframe, MorphKeyframe, CameraKeyframe, CameraInterpolation};
+pub use motion_track::{MotionTrack, BoneMotionTrack, MorphMotionTrack, BoneFrameTransform, CameraMotionTrack, CameraFrameTransform};
 pub use motion::Motion;
 pub use vmd_loader::{VmdFile, VmdAnimation};
 pub use vpd_file::{VpdFile, VpdBone, VpdMorph};

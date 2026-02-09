@@ -4,7 +4,7 @@ mod morph;
 mod manager;
 
 pub use morph::Morph;
-pub use manager::MorphManager;
+pub use manager::{MorphManager, MaterialMorphResult};
 
 use glam::{Vec3, Vec4};
 
@@ -43,6 +43,7 @@ pub struct BoneMorphOffset {
 #[derive(Clone, Debug)]
 pub struct MaterialMorphOffset {
     pub material_index: i32,
+    /// 操作类型: 0=乘算, 1=加算
     pub operation: u8,
     pub diffuse: Vec4,
     pub specular: Vec3,
@@ -53,4 +54,19 @@ pub struct MaterialMorphOffset {
     pub texture_tint: Vec4,
     pub environment_tint: Vec4,
     pub toon_tint: Vec4,
+}
+
+/// UV Morph 偏移
+#[derive(Clone, Debug)]
+pub struct UvMorphOffset {
+    pub vertex_index: u32,
+    /// UV 偏移 (x, y 为主 UV 偏移，z, w 备用)
+    pub offset: Vec4,
+}
+
+/// Group Morph 子项
+#[derive(Clone, Debug)]
+pub struct GroupMorphOffset {
+    pub morph_index: u32,
+    pub influence: f32,
 }

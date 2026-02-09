@@ -51,7 +51,7 @@ public class OpenGLModelFactory implements IMMDModelFactory {
     public IMMDModel createModel(String modelFilename, String modelDir, boolean isPMD, long layerCount) {
         try {
             return MMDModelOpenGL.Create(modelFilename, modelDir, isPMD, layerCount);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             logger.error("CPU 蒙皮模型创建失败: {}", modelFilename, e);
             return null;
         }

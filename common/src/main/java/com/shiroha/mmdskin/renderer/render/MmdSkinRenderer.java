@@ -73,7 +73,7 @@ public class MmdSkinRenderer<T extends Entity> extends EntityRenderer<T> {
                 matrixStackIn.scale(0.5f, 0.5f, 0.5f);
             }
         }
-        if(animName == ""){
+        if(animName.isEmpty()){
             if (entityIn.isVehicle() && (entityIn.getX() - entityIn.xo != 0.0f || entityIn.getZ() - entityIn.zo != 0.0f)) {
                 animName = "driven";
                 AnimStateChangeOnce(mwed, EntityAnimState.State.Driven, 0);

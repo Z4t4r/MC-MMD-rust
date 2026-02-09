@@ -1,5 +1,6 @@
-package com.shiroha.mmdskin.ui;
+package com.shiroha.mmdskin.ui.network;
 
+import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

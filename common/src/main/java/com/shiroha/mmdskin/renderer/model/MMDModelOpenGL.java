@@ -2,8 +2,10 @@ package com.shiroha.mmdskin.renderer.model;
 
 import com.shiroha.mmdskin.MmdSkinClient;
 import com.shiroha.mmdskin.config.ConfigManager;
+import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
 import com.shiroha.mmdskin.renderer.core.EyeTrackingHelper;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
+import com.shiroha.mmdskin.renderer.core.IrisCompat;
 import com.shiroha.mmdskin.renderer.core.RenderContext;
 import com.shiroha.mmdskin.renderer.resource.MMDTextureManager;
 import com.shiroha.mmdskin.renderer.shader.ShaderProvider;
@@ -72,6 +74,7 @@ public class MMDModelOpenGL implements IMMDModel {
 
     long model;
     String modelDir;
+    private String cachedModelName;
     int vertexCount;
     ByteBuffer posBuffer, colorBuffer, norBuffer, uv0Buffer, uv1Buffer, uv2Buffer;
     int vertexArrayObject;
@@ -86,16 +89,23 @@ public class MMDModelOpenGL implements IMMDModel {
     int indexType;
     Material[] mats;
     Material lightMapMaterial;
-    Vector3f light0Direction, light1Direction;
+    final Vector3f light0Direction = new Vector3f();
+    final Vector3f light1Direction = new Vector3f();
+    private final Quaternionf tempQuat = new Quaternionf();
     
     // 时间追踪（用于计算 deltaTime）
     private long lastUpdateTime = -1; // -1 表示未初始化
-    private static final float MAX_DELTA_TIME = 0.05f; // 最大 50ms，防止暂停后跳跃
+    private static final float MAX_DELTA_TIME = 0.25f; // 最大 250ms（4FPS），防止暂停后跳跃
     
     private FloatBuffer modelViewMatBuff;          // 预分配的矩阵缓冲区
     private FloatBuffer projMatBuff;
     private FloatBuffer light0Buff;                  // 预分配的光照缓冲区
     private FloatBuffer light1Buff;
+    
+    // 材质 Morph 结果
+    private FloatBuffer materialMorphResultsBuffer;
+    private ByteBuffer materialMorphResultsByteBuffer;
+    private int materialMorphResultCount = 0;
 
     MMDModelOpenGL() {
         // 不在这里初始化时间，等第一次 Update 时初始化
@@ -104,7 +114,13 @@ public class MMDModelOpenGL implements IMMDModel {
     public static void InitShader() {
         //Init Shader
         ShaderProvider.Init();
-        MMDShaderProgram = ShaderProvider.getProgram();
+        if (ShaderProvider.isReady()) {
+            MMDShaderProgram = ShaderProvider.getProgram();
+        } else {
+            logger.warn("MMD Shader 初始化失败，已自动禁用自定义着色器");
+            MMDShaderProgram = 0;
+            isMMDShaderEnabled = false;
+        }
         isShaderInited = true;
     }
 
@@ -185,6 +201,7 @@ public class MMDModelOpenGL implements IMMDModel {
             lightMapMaterial.hasAlpha = mgrTex.hasAlpha;
         }else{
             lightMapMaterial.tex = GL46C.glGenTextures();
+            lightMapMaterial.ownsTexture = true;
             GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, lightMapMaterial.tex);
             ByteBuffer texBuffer = ByteBuffer.allocateDirect(16*16*4);
             texBuffer.order(ByteOrder.LITTLE_ENDIAN);
@@ -247,6 +264,16 @@ public class MMDModelOpenGL implements IMMDModel {
         result.light0Buff = MemoryUtil.memAllocFloat(3);
         result.light1Buff = MemoryUtil.memAllocFloat(3);
         
+        // 初始化材质 Morph 结果缓冲区
+        int matMorphCount = nf.GetMaterialMorphResultCount(model);
+        if (matMorphCount > 0) {
+            int floatCount = matMorphCount * 28;
+            result.materialMorphResultCount = matMorphCount;
+            result.materialMorphResultsBuffer = MemoryUtil.memAllocFloat(floatCount);
+            result.materialMorphResultsByteBuffer = MemoryUtil.memAlloc(floatCount * 4);
+            result.materialMorphResultsByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        }
+        
         // 启用自动眨眼
         nf.SetAutoBlinkEnabled(model, true);
         
@@ -274,6 +301,19 @@ public class MMDModelOpenGL implements IMMDModel {
             MemoryUtil.memFree(light1Buff);
             light1Buff = null;
         }
+        if (materialMorphResultsBuffer != null) {
+            MemoryUtil.memFree(materialMorphResultsBuffer);
+            materialMorphResultsBuffer = null;
+        }
+        if (materialMorphResultsByteBuffer != null) {
+            MemoryUtil.memFree(materialMorphResultsByteBuffer);
+            materialMorphResultsByteBuffer = null;
+        }
+        
+        // 释放自建的 lightMap 纹理（来自 MMDTextureManager 的不在此删除）
+        if (lightMapMaterial != null && lightMapMaterial.ownsTexture && lightMapMaterial.tex > 0) {
+            GL46C.glDeleteTextures(lightMapMaterial.tex);
+        }
         
         // 删除 OpenGL 资源
         GL46C.glDeleteVertexArrays(vertexArrayObject);
@@ -297,19 +337,26 @@ public class MMDModelOpenGL implements IMMDModel {
     }
 
     private void renderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
-        // 计算头部角度
-        float headAngleX = Mth.clamp(entityIn.getXRot(), -50.0f, 50.0f);
-        float headAngleY = (entityYaw - Mth.lerp(tickDelta, entityIn.yHeadRotO, entityIn.yHeadRot)) % 360.0f;
-        if (headAngleY < -180.0f) headAngleY += 360.0f;
-        else if (headAngleY > 180.0f) headAngleY -= 360.0f;
-        headAngleY = Mth.clamp(headAngleY, -80.0f, 80.0f);
+        // 头部角度处理（舞台播放时归零，由 VMD 动画控制）
+        boolean stagePlaying = MMDCameraController.getInstance().isStagePlayingModel(model);
+        if (stagePlaying) {
+            nf.SetHeadAngle(model, 0.0f, 0.0f, 0.0f, context.isWorldScene());
+        } else {
+            float headAngleX = Mth.clamp(entityIn.getXRot(), -50.0f, 50.0f);
+            float headAngleY = (entityYaw - Mth.lerp(tickDelta, entityIn.yHeadRotO, entityIn.yHeadRot)) % 360.0f;
+            if (headAngleY < -180.0f) headAngleY += 360.0f;
+            else if (headAngleY > 180.0f) headAngleY -= 360.0f;
+            headAngleY = Mth.clamp(headAngleY, -80.0f, 80.0f);
+            
+            float pitchRad = headAngleX * ((float)Math.PI / 180F);
+            float yawRad = context.isInventoryScene() ? -headAngleY * ((float)Math.PI / 180F) : headAngleY * ((float)Math.PI / 180F);
+            nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
+        }
         
-        float pitchRad = headAngleX * ((float)Math.PI / 180F);
-        float yawRad = context.isInventoryScene() ? -headAngleY * ((float)Math.PI / 180F) : headAngleY * ((float)Math.PI / 180F);
-        nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
-        
-        // 使用公共工具类更新眼球追踪
-        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta);
+        // 使用公共工具类更新眼球追踪（传递模型名称，使用每模型独立配置）
+        if (!stagePlaying) {
+            EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta, getModelName());
+        }
         
         // 传递实体位置和朝向给物理系统（用于人物移动时的惯性效果）
         final float MODEL_SCALE = 0.09f;
@@ -347,7 +394,41 @@ public class MMDModelOpenGL implements IMMDModel {
     public String GetModelDir() {
         return modelDir;
     }
+    
+    @Override
+    public String getModelName() {
+        if (cachedModelName == null) {
+            cachedModelName = IMMDModel.super.getModelName();
+        }
+        return cachedModelName;
+    }
 
+    /**
+     * 从 Rust 端获取材质 Morph 结果
+     */
+    private void fetchMaterialMorphResults() {
+        if (materialMorphResultCount <= 0 || materialMorphResultsBuffer == null) return;
+        
+        materialMorphResultsByteBuffer.clear();
+        nf.CopyMaterialMorphResultsToBuffer(model, materialMorphResultsByteBuffer);
+        materialMorphResultsBuffer.clear();
+        materialMorphResultsByteBuffer.position(0);
+        materialMorphResultsBuffer.put(materialMorphResultsByteBuffer.asFloatBuffer());
+        materialMorphResultsBuffer.flip();
+    }
+    
+    /**
+     * 获取指定材质的 Morph diffuse alpha 乘数
+     */
+    private float getMaterialMorphAlpha(int materialIndex) {
+        if (materialMorphResultsBuffer == null || materialIndex >= materialMorphResultCount) return 1.0f;
+        int offset = materialIndex * 28 + 3; // diffuse.w
+        if (offset < materialMorphResultsBuffer.capacity()) {
+            return materialMorphResultsBuffer.get(offset);
+        }
+        return 1.0f;
+    }
+    
     void Update() {
         // 计算真实的 deltaTime（秒）
         long currentTime = System.currentTimeMillis();
@@ -391,17 +472,20 @@ public class MMDModelOpenGL implements IMMDModel {
         float minBrightness = 0.1f;
         lightIntensity = minBrightness + lightIntensity * (1.0f - minBrightness);
         
-        light0Direction = new Vector3f(1.0f, 0.75f, 0.0f);
-        light1Direction = new Vector3f(-1.0f, 0.75f, 0.0f);
-        light0Direction.normalize();
-        light1Direction.normalize();
-        light0Direction.rotate(new Quaternionf().rotateY(entityYaw*((float)Math.PI / 180F)));
-        light1Direction.rotate(new Quaternionf().rotateY(entityYaw*((float)Math.PI / 180F)));
+        light0Direction.set(1.0f, 0.75f, 0.0f).normalize();
+        light1Direction.set(-1.0f, 0.75f, 0.0f).normalize();
+        float yawRad = entityYaw * ((float)Math.PI / 180F);
+        light0Direction.rotate(tempQuat.identity().rotateY(yawRad));
+        light1Direction.rotate(tempQuat.identity().rotateY(yawRad));
 
-        deliverStack.mulPose(new Quaternionf().rotateY(-entityYaw*((float)Math.PI / 180F)));
-        deliverStack.mulPose(new Quaternionf().rotateX(entityPitch*((float)Math.PI / 180F)));
+        deliverStack.mulPose(tempQuat.identity().rotateY(-yawRad));
+        deliverStack.mulPose(tempQuat.identity().rotateX(entityPitch*((float)Math.PI / 180F)));
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
-        deliverStack.scale(0.09f, 0.09f, 0.09f);
+        float baseScale = 0.09f * com.shiroha.mmdskin.config.ModelConfigManager.getConfig(getModelName()).modelScale;
+        deliverStack.scale(baseScale, baseScale, baseScale);
+        
+        // 获取材质 Morph 结果
+        fetchMaterialMorphResults();
         
         // 检查是否启用 Toon 渲染
         boolean useToon = ConfigManager.isToonRenderingEnabled();
@@ -424,9 +508,14 @@ public class MMDModelOpenGL implements IMMDModel {
         
         // 普通渲染模式
         if(MmdSkinClient.usingMMDShader == 0){
-            shaderProgram = RenderSystem.getShader().getId();
-            setUniforms(RenderSystem.getShader(), deliverStack);
-            RenderSystem.getShader().apply();
+            ShaderInstance mcShader = RenderSystem.getShader();
+            if (mcShader == null) {
+                logger.debug("RenderSystem.getShader() 返回 null，跳过本帧渲染");
+                return;
+            }
+            shaderProgram = mcShader.getId();
+            setUniforms(mcShader, deliverStack);
+            mcShader.apply();
         }
         if(MmdSkinClient.usingMMDShader == 1){
             shaderProgram = MMDShaderProgram;
@@ -442,77 +531,57 @@ public class MMDModelOpenGL implements IMMDModel {
         RenderSystem.blendEquation(GL46C.GL_FUNC_ADD);
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
 
-        // Position
+        // === 上传顶点数据到 VBO（每个 VBO 只上传一次）===
         int posAndNorSize = vertexCount * 12; // float * 3
         long posData = nf.GetPoss(model);
         nf.CopyDataToByteBuffer(posBuffer, posData, posAndNorSize);
-        if (positionLocation != -1) {
-            GL46C.glEnableVertexAttribArray(positionLocation);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, vertexBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, posBuffer, GL46C.GL_STATIC_DRAW);
-            GL46C.glVertexAttribPointer(positionLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
-        }
+        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, vertexBufferObject);
+        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, posBuffer, GL46C.GL_DYNAMIC_DRAW);
 
-        // Normal
         long normalData = nf.GetNormals(model);
         nf.CopyDataToByteBuffer(norBuffer, normalData, posAndNorSize);
-        if (normalLocation != -1) {
-            GL46C.glEnableVertexAttribArray(normalLocation);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, normalBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, norBuffer, GL46C.GL_STATIC_DRAW);
-            GL46C.glVertexAttribPointer(normalLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
-        }
+        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, normalBufferObject);
+        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, norBuffer, GL46C.GL_DYNAMIC_DRAW);
 
-        // UV0
         int uv0Size = vertexCount * 8; // float * 2
         long uv0Data = nf.GetUVs(model);
         nf.CopyDataToByteBuffer(uv0Buffer, uv0Data, uv0Size);
+        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, texcoordBufferObject);
+        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv0Buffer, GL46C.GL_DYNAMIC_DRAW);
+
+        uv1Buffer.position(0);
+        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv1BufferObject);
+        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv1Buffer, GL46C.GL_STATIC_DRAW);
+
+        // === UV2 和 Color：所有顶点值相同，使用常量顶点属性（避免逐顶点循环和缓冲区上传）===
+        int blockBrightness = 16 * blockLight;
+        int skyBrightness = Math.round((15.0f - skyDarken) * (skyLight / 15.0f) * 16);
+        if (uv2Location != -1) GL46C.glVertexAttribI4i(uv2Location, blockBrightness, skyBrightness, 0, 0);
+        if (K_uv2Location != -1) GL46C.glVertexAttribI4i(K_uv2Location, blockBrightness, skyBrightness, 0, 0);
+        if (I_uv2Location != -1) GL46C.glVertexAttribI4i(I_uv2Location, blockBrightness, skyBrightness, 0, 0);
+        if (colorLocation != -1) GL46C.glVertexAttrib4f(colorLocation, lightIntensity, lightIntensity, lightIntensity, 1.0f);
+        if (I_colorLocation != -1) GL46C.glVertexAttrib4f(I_colorLocation, lightIntensity, lightIntensity, lightIntensity, 1.0f);
+
+        // === 绑定顶点属性（数据已在 VBO 中，只需设置指针）===
+        if (positionLocation != -1) {
+            GL46C.glEnableVertexAttribArray(positionLocation);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, vertexBufferObject);
+            GL46C.glVertexAttribPointer(positionLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
+        }
+        if (normalLocation != -1) {
+            GL46C.glEnableVertexAttribArray(normalLocation);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, normalBufferObject);
+            GL46C.glVertexAttribPointer(normalLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
+        }
         if (uv0Location != -1) {
             GL46C.glEnableVertexAttribArray(uv0Location);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, texcoordBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv0Buffer, GL46C.GL_STATIC_DRAW);
             GL46C.glVertexAttribPointer(uv0Location, 2, GL46C.GL_FLOAT, false, 0, 0);
         }
-
-        // UV2 (光照)
-        int blockBrightness = 16 * blockLight;
-        int skyBrightness = Math.round((15.0f - skyDarken) * (skyLight / 15.0f) * 16);
-        uv2Buffer.clear();
-        for (int i = 0; i < vertexCount; i++) {
-            uv2Buffer.putInt(blockBrightness);
-            uv2Buffer.putInt(skyBrightness);
-        }
-        uv2Buffer.flip();
-        if (uv2Location != -1) {
-            GL46C.glEnableVertexAttribArray(uv2Location);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv2BufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv2Buffer, GL46C.GL_STATIC_DRAW);
-            GL46C.glVertexAttribIPointer(uv2Location, 2, GL46C.GL_INT, 0, 0);
-        }
-
-        // UV1
-        uv1Buffer.position(0);
         if (uv1Location != -1) {
             GL46C.glEnableVertexAttribArray(uv1Location);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv1BufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv1Buffer, GL46C.GL_STATIC_DRAW);
             GL46C.glVertexAttribIPointer(uv1Location, 2, GL46C.GL_INT, 0, 0);
-        }
-
-        // Color (应用光照强度)
-        colorBuffer.clear();
-        for (int i = 0; i < vertexCount; i++) {
-            colorBuffer.putFloat(lightIntensity);
-            colorBuffer.putFloat(lightIntensity);
-            colorBuffer.putFloat(lightIntensity);
-            colorBuffer.putFloat(1.0f);
-        }
-        colorBuffer.flip();
-        if (colorLocation != -1) {
-            GL46C.glEnableVertexAttribArray(colorLocation);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, colorBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, colorBuffer, GL46C.GL_DYNAMIC_DRAW);
-            GL46C.glVertexAttribPointer(colorLocation, 4, GL46C.GL_FLOAT, false, 0, 0);
         }
 
         GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, indexBufferObject);
@@ -559,30 +628,21 @@ public class MMDModelOpenGL implements IMMDModel {
             }
         }
 
-        // K_* 属性（自定义着色器属性）
+        // K_* 属性（自定义着色器属性）— 复用已上传的 VBO，无需重复 glBufferData
         if (K_positionLocation != -1) {
             GL46C.glEnableVertexAttribArray(K_positionLocation);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, vertexBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, posBuffer, GL46C.GL_STATIC_DRAW);
             GL46C.glVertexAttribPointer(K_positionLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
         }
         if (K_normalLocation != -1) {
             GL46C.glEnableVertexAttribArray(K_normalLocation);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, normalBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, norBuffer, GL46C.GL_STATIC_DRAW);
             GL46C.glVertexAttribPointer(K_normalLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
         }
         if (K_uv0Location != -1) {
             GL46C.glEnableVertexAttribArray(K_uv0Location);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, texcoordBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv0Buffer, GL46C.GL_STATIC_DRAW);
             GL46C.glVertexAttribPointer(K_uv0Location, 2, GL46C.GL_FLOAT, false, 0, 0);
-        }
-        if (K_uv2Location != -1) {
-            GL46C.glEnableVertexAttribArray(K_uv2Location);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv2BufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv2Buffer, GL46C.GL_STATIC_DRAW);
-            GL46C.glVertexAttribIPointer(K_uv2Location, 2, GL46C.GL_INT, 0, 0);
         }
         if(K_projMatLocation != -1){
             projMatBuff.position(0);
@@ -606,36 +666,21 @@ public class MMDModelOpenGL implements IMMDModel {
         if(KAIMyLocationF != -1)
             GL46C.glUniform1i(KAIMyLocationF, 1);
 
-        // Iris 属性
+        // Iris 属性 — 复用已上传的 VBO，无需重复 glBufferData
         if (I_positionLocation != -1) {
             GL46C.glEnableVertexAttribArray(I_positionLocation);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, vertexBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, posBuffer, GL46C.GL_STATIC_DRAW);
             GL46C.glVertexAttribPointer(I_positionLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
         }
         if (I_normalLocation != -1) {
             GL46C.glEnableVertexAttribArray(I_normalLocation);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, normalBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, norBuffer, GL46C.GL_STATIC_DRAW);
             GL46C.glVertexAttribPointer(I_normalLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
         }
         if (I_uv0Location != -1) {
             GL46C.glEnableVertexAttribArray(I_uv0Location);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, texcoordBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv0Buffer, GL46C.GL_STATIC_DRAW);
             GL46C.glVertexAttribPointer(I_uv0Location, 2, GL46C.GL_FLOAT, false, 0, 0);
-        }
-        if (I_uv2Location != -1) {
-            GL46C.glEnableVertexAttribArray(I_uv2Location);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv2BufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv2Buffer, GL46C.GL_STATIC_DRAW);
-            GL46C.glVertexAttribIPointer(I_uv2Location, 2, GL46C.GL_INT, 0, 0);
-        }
-        if (I_colorLocation != -1) {
-            GL46C.glEnableVertexAttribArray(I_colorLocation);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, colorBufferObject);
-            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, colorBuffer, GL46C.GL_DYNAMIC_DRAW);
-            GL46C.glVertexAttribPointer(I_colorLocation, 4, GL46C.GL_FLOAT, false, 0, 0);
         }
 
         //Draw
@@ -649,7 +694,8 @@ public class MMDModelOpenGL implements IMMDModel {
                 continue;
             
             float alpha = nf.GetMaterialAlpha(model, materialID);
-            if (alpha == 0.0f)
+            float morphAlpha = getMaterialMorphAlpha(materialID);
+            if (alpha * morphAlpha < 0.001f)
                 continue;
 
             if (nf.GetMaterialBothFace(model, materialID)) {
@@ -658,9 +704,9 @@ public class MMDModelOpenGL implements IMMDModel {
                 RenderSystem.enableCull();
             }
             if (mats[materialID].tex == 0)
-                MCinstance.getEntityRenderDispatcher().textureManager.bindForSetup(TextureManager.INTENTIONAL_MISSING_TEXTURE);
+                RenderSystem.setShaderTexture(0, MCinstance.getTextureManager().getTexture(TextureManager.INTENTIONAL_MISSING_TEXTURE).getId());
             else
-                GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, mats[materialID].tex);
+                RenderSystem.setShaderTexture(0, mats[materialID].tex);
             long startPos = (long) nf.GetSubMeshBeginIndex(model, i) * indexElementSize;
             int count = nf.GetSubMeshVertexCount(model, i);
 
@@ -700,13 +746,21 @@ public class MMDModelOpenGL implements IMMDModel {
         // 确保纹理单元恢复到 TEXTURE0
         RenderSystem.activeTexture(GL46C.GL_TEXTURE0);
 
-        RenderSystem.getShader().clear();
+        ShaderInstance currentShader = RenderSystem.getShader();
+        if (currentShader != null) {
+            currentShader.clear();
+        }
         BufferUploader.reset();
     }
 
     /**
      * Toon 渲染模式（CPU 蒙皮版本）
      * 两遍渲染：1. 描边（背面扩张）2. 主体（卡通着色）
+     * 
+     * Iris 兼容：
+     *   Iris 激活时，先通过 ExtendedShader.apply() 绑定 G-buffer FBO + MRT draw buffers，
+     *   再切换到 Toon 着色器程序。Toon 片段着色器已声明 layout(location=0..3) 多输出，
+     *   确保 Iris 的 draw buffers 全部被写入合理数据，避免透明。
      */
     private void renderToon(Minecraft MCinstance, float lightIntensity, PoseStack deliverStack) {
         BufferUploader.reset();
@@ -715,6 +769,16 @@ public class MMDModelOpenGL implements IMMDModel {
         RenderSystem.enableDepthTest();
         RenderSystem.blendEquation(GL46C.GL_FUNC_ADD);
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
+        
+        // Iris 兼容：绑定 Iris G-buffer FBO（如果 Iris 光影激活）
+        boolean irisActive = IrisCompat.isIrisShaderActive();
+        if (irisActive) {
+            ShaderInstance irisShader = RenderSystem.getShader();
+            if (irisShader != null) {
+                setUniforms(irisShader, deliverStack);
+                irisShader.apply();  // 绑定 Iris G-buffer FBO + MRT draw buffers
+            }
+        }
         
         // 获取蒙皮后的顶点数据（由 Rust 引擎计算）
         int posAndNorSize = vertexCount * 12;
@@ -773,7 +837,7 @@ public class MMDModelOpenGL implements IMMDModel {
             for (long i = 0; i < subMeshCount; ++i) {
                 int materialID = nf.GetSubMeshMaterialID(model, i);
                 if (!nf.IsMaterialVisible(model, materialID)) continue;
-                if (nf.GetMaterialAlpha(model, materialID) == 0.0f) continue;
+                if (nf.GetMaterialAlpha(model, materialID) * getMaterialMorphAlpha(materialID) < 0.001f) continue;
                 
                 long startPos = (long) nf.GetSubMeshBeginIndex(model, i) * indexElementSize;
                 int count = nf.GetSubMeshVertexCount(model, i);
@@ -836,7 +900,8 @@ public class MMDModelOpenGL implements IMMDModel {
             if (!nf.IsMaterialVisible(model, materialID)) continue;
             
             float alpha = nf.GetMaterialAlpha(model, materialID);
-            if (alpha == 0.0f) continue;
+            float morphAlpha = getMaterialMorphAlpha(materialID);
+            if (alpha * morphAlpha < 0.001f) continue;
             
             if (nf.GetMaterialBothFace(model, materialID)) {
                 RenderSystem.disableCull();
@@ -845,9 +910,9 @@ public class MMDModelOpenGL implements IMMDModel {
             }
             
             if (mats[materialID].tex == 0) {
-                MCinstance.getEntityRenderDispatcher().textureManager.bindForSetup(TextureManager.INTENTIONAL_MISSING_TEXTURE);
+                RenderSystem.setShaderTexture(0, MCinstance.getTextureManager().getTexture(TextureManager.INTENTIONAL_MISSING_TEXTURE).getId());
             } else {
-                GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, mats[materialID].tex);
+                RenderSystem.setShaderTexture(0, mats[materialID].tex);
             }
             
             long startPos = (long) nf.GetSubMeshBeginIndex(model, i) * indexElementSize;
@@ -875,10 +940,12 @@ public class MMDModelOpenGL implements IMMDModel {
     static class Material {
         int tex;
         boolean hasAlpha;
+        boolean ownsTexture;
 
         Material() {
             tex = 0;
             hasAlpha = false;
+            ownsTexture = false;
         }
     }
 
@@ -961,5 +1028,10 @@ public class MMDModelOpenGL implements IMMDModel {
 
         shader.setSampler("Sampler1", lightMapMaterial.tex);
         shader.setSampler("Sampler2", lightMapMaterial.tex);
+        
+        // Iris 兼容：ExtendedShader.apply() 从 RenderSystem.getShaderTexture() 读取纹理，
+        // 而非 shader.setSampler() 设置的值，需要同步设置
+        RenderSystem.setShaderTexture(1, lightMapMaterial.tex);
+        RenderSystem.setShaderTexture(2, lightMapMaterial.tex);
     }
 }

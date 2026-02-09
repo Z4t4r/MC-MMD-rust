@@ -6,7 +6,7 @@ import java.util.function.Supplier;
 import com.shiroha.mmdskin.forge.register.MmdSkinRegisterCommon;
 import com.shiroha.mmdskin.maid.MaidMMDModelManager;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
-import com.shiroha.mmdskin.ui.PlayerModelSyncManager;
+import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.entity.Entity;
@@ -122,15 +122,13 @@ public class MmdSkinNetworkPack {
      */
     public void DoInClient() {
         Minecraft MCinstance = Minecraft.getInstance();
+        if (MCinstance.player == null) return;
         // 忽略自己发送的消息
-        assert MCinstance.player != null;
         if (playerUUID.equals(MCinstance.player.getUUID()))
             return;
             
-        assert MCinstance.level != null;
+        if (MCinstance.level == null) return;
         Player target = MCinstance.level.getPlayerByUUID(playerUUID);
-        if (target == null)
-            return;
             
         switch (opCode) {
             case 1: {

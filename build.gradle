@@ -1,7 +1,7 @@
 // 根项目配置 - 多模块项目
 plugins {
-	id 'architectury-plugin' version '3.4-SNAPSHOT'
-	id 'dev.architectury.loom' version '1.6-SNAPSHOT' apply false
+	id 'architectury-plugin' version '3.4.162'
+	id 'dev.architectury.loom' version '1.7.435' apply false
 }
 
 architectury {
@@ -21,6 +21,8 @@ allprojects {
 		maven { url = 'https://maven.minecraftforge.net/' }
 		maven { url = 'https://maven.shedaniel.me/' }
 		maven { url = 'https://maven.terraformersmc.com/' }
+		// Cardinal Components API (Touhou Little Maid Fabric 移植版依赖)
+		maven { url = 'https://maven.ladysnake.org/releases' }
         // curseforge与modrinth平台仓库
         exclusiveContent {
             forRepository {
@@ -92,6 +94,7 @@ subprojects {
 		tasks.named('runClient', JavaExec).configure {
 			def username = rootProject.properties.getOrDefault('minecraft_username', 'Player')
 			args '--username', username
+			jvmArgs '-Xmx4G', '-Xms2G'
 		}
 	}
 }

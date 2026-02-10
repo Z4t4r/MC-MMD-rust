@@ -125,5 +125,7 @@
   "gui.mmdskin.reset_morph": "重置表情",
   
   "gui.mmdskin.stage.cinematic": "影院模式",
-  "gui.mmdskin.stage.start": "开始"
+  "gui.mmdskin.stage.start": "开始",
+  "gui.mmdskin.stage.esc_hint": "再按一次 ESC 退出舞蹈",
+  "gui.mmdskin.stage.mouse_released": "鼠标已释放 — 右键点击窗口恢复"
 }

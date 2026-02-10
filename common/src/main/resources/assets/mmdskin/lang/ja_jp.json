@@ -125,5 +125,7 @@
   "gui.mmdskin.reset_morph": "表情リセット",
   
   "gui.mmdskin.stage.cinematic": "シネマモード",
-  "gui.mmdskin.stage.start": "開始"
+  "gui.mmdskin.stage.start": "開始",
+  "gui.mmdskin.stage.esc_hint": "もう一度 ESC を押すとダンス終了",
+  "gui.mmdskin.stage.mouse_released": "マウス解放済み — 右クリックで復帰"
 }

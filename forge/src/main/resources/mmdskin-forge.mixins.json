@@ -10,7 +10,9 @@
     "CameraMixin",
     "GameRendererMixin",
     "LevelRendererMixin",
-    "ItemInHandRendererMixin"
+    "ItemInHandRendererMixin",
+    "MinecraftMixin",
+    "MouseHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

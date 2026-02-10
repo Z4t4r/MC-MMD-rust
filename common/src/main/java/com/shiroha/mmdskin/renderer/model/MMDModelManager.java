@@ -341,6 +341,43 @@ public class MMDModelManager {
     }
     
     /**
+     * 强制重载指定玩家的所有模型缓存（不影响其他玩家）
+     * 适用于玩家切换模型时，仅清除自己的旧模型
+     * 
+     * @param playerCacheKey 玩家缓存键（通常是玩家名）
+     */
+    public static void forceReloadPlayerModels(String playerCacheKey) {
+        String suffix = "_" + playerCacheKey;
+        
+        // 取消该玩家相关的后台加载
+        pendingLoads.entrySet().removeIf(entry -> {
+            if (entry.getKey().endsWith(suffix)) {
+                cleanupFutureHandle(entry.getValue());
+                return true;
+            }
+            return false;
+        });
+        failedLoads.entrySet().removeIf(entry -> entry.getKey().endsWith(suffix));
+        
+        // 收集该玩家的缓存键
+        java.util.List<String> keysToRemove = new java.util.ArrayList<>();
+        modelCache.forEach((key, entry) -> {
+            if (key.endsWith(suffix)) {
+                keysToRemove.add(key);
+            }
+        });
+        
+        // 释放并移除
+        for (String key : keysToRemove) {
+            ModelCache.CacheEntry<Model> entry = modelCache.remove(key);
+            if (entry != null) {
+                disposeModel(entry.value);
+                logger.info("强制释放玩家模型: {}", key);
+            }
+        }
+    }
+    
+    /**
      * 强制重载所有模型（立即清除所有缓存）
      * 适用于渲染模式切换（CPU/GPU）时需要完全重建所有模型的场景
      */

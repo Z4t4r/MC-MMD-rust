@@ -7,6 +7,7 @@ import com.shiroha.mmdskin.config.StageConfig;
 import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
+import com.shiroha.mmdskin.ui.network.StageNetworkHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
@@ -622,6 +623,13 @@ public class StageSelectScreen extends Screen {
         
         // 启动相机控制器（传递 modelHandle + modelName + 音频路径 + 高度偏移）
         MMDCameraController.getInstance().startStage(mergedAnim, cameraAnim, cinematicMode, modelHandle, modelName, audioPath, cameraHeightOffset);
+        
+        // 广播舞台开始到其他客户端（联机同步）
+        StringBuilder stageData = new StringBuilder(pack.getName());
+        for (StagePack.VmdFileInfo info : motionFiles) {
+            stageData.append("|").append(info.name);
+        }
+        StageNetworkHandler.sendStageStart(stageData.toString());
         
         // 标记已启动（onClose 不会退出舞台模式）
         this.stageStarted = true;

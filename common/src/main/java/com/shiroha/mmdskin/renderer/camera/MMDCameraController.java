@@ -2,13 +2,15 @@ package com.shiroha.mmdskin.renderer.camera;
 
 import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
-import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
+import com.shiroha.mmdskin.ui.network.StageNetworkHandler;
 import com.shiroha.mmdskin.ui.stage.StageSelectScreen;
 import net.minecraft.client.CameraType;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.PauseScreen;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import net.minecraft.network.chat.Component;
 import org.joml.Vector3f;
 
 /**
@@ -83,6 +85,14 @@ public class MMDCameraController {
     // 时间追踪
     private long lastTickTimeNs = 0;
     
+    // 鼠标释放状态（PLAYING时右键切换）
+    private boolean mouseReleased = false;
+    
+    // 双击ESC检测
+    private boolean escWasPressed = false;
+    private long lastEscTimeNs = 0;
+    private static final long DOUBLE_ESC_WINDOW_NS = 600_000_000L; // 600ms
+    
     // INTRO 过渡（当前相机 → 待机位）
     private static final float INTRO_DURATION = 1.0f;
     private float introElapsed = 0.0f;
@@ -128,11 +138,11 @@ public class MMDCameraController {
             this.anchorYaw = mc.player.getYRot();
         }
         
-        // 重载模型（清除上次播放的残留姿势）
-        String selectedModel = ModelSelectorConfig.getInstance().getSelectedModel();
-        if (selectedModel != null && !selectedModel.isEmpty()) {
-            MMDModelManager.forceReloadModel(selectedModel);
-            logger.info("[舞台模式] 模型已重载: {}", selectedModel);
+        // 重载模型（清除上次播放的残留姿势，仅本地玩家）
+        if (mc.player != null) {
+            String playerName = mc.player.getName().getString();
+            MMDModelManager.forceReloadPlayerModels(playerName);
+            logger.info("[舞台模式] 本地玩家模型已重载: {}", playerName);
         }
         
         // 计算 INTRO 起点和待机位
@@ -140,6 +150,9 @@ public class MMDCameraController {
         
         this.introElapsed = 0.0f;
         this.lastTickTimeNs = System.nanoTime();
+        this.escWasPressed = false;
+        this.lastEscTimeNs = 0;
+        this.mouseReleased = false;
         this.state = StageState.INTRO;
         
         // 立即设置相机到起点位置（避免第一帧跳动）
@@ -208,6 +221,9 @@ public class MMDCameraController {
         
         this.state = StageState.PLAYING;
         this.lastTickTimeNs = System.nanoTime();
+        this.escWasPressed = false;
+        this.lastEscTimeNs = 0;
+        this.mouseReleased = false;
         
         logger.info("[舞台模式] 开始播放: 相机帧={}, 影院={}, 模型={}, 音频={}, 高度偏移={}", maxFrame, cinematic, modelHandle, audioPath != null, cameraHeightOffset);
     }
@@ -217,6 +233,9 @@ public class MMDCameraController {
      * VMD 播放完毕或 PLAYING 阶段按 ESC 时调用
      */
     private void endPlayback() {
+        // 恢复鼠标状态
+        restoreMouseGrab();
+        
         // 停止音频
         audioPlayer.cleanup();
         
@@ -227,9 +246,12 @@ public class MMDCameraController {
         
         NativeFunc nf = NativeFunc.GetInst();
         
-        // 重载模型或恢复自动行为
+        // 重载模型或恢复自动行为（仅本地玩家）
         if (this.modelName != null && !this.modelName.isEmpty()) {
-            MMDModelManager.forceReloadModel(this.modelName);
+            Minecraft mcEnd = Minecraft.getInstance();
+            if (mcEnd.player != null) {
+                MMDModelManager.forceReloadPlayerModels(mcEnd.player.getName().getString());
+            }
             logger.info("[舞台模式] 模型已重载: {}", this.modelName);
         } else if (this.modelHandle != 0) {
             nf.SetAutoBlinkEnabled(this.modelHandle, true);
@@ -263,6 +285,9 @@ public class MMDCameraController {
         this.lastTickTimeNs = System.nanoTime();
         this.state = StageState.OUTRO;
         
+        // 广播舞台结束到其他客户端
+        StageNetworkHandler.sendStageEnd();
+        
         logger.info("[舞台模式] 播放结束, 开始回归过渡");
     }
     
@@ -281,7 +306,10 @@ public class MMDCameraController {
             }
             NativeFunc nf = NativeFunc.GetInst();
             if (this.modelName != null && !this.modelName.isEmpty()) {
-                MMDModelManager.forceReloadModel(this.modelName);
+                Minecraft mcExit = Minecraft.getInstance();
+                if (mcExit.player != null) {
+                    MMDModelManager.forceReloadPlayerModels(mcExit.player.getName().getString());
+                }
             } else if (this.modelHandle != 0) {
                 nf.SetAutoBlinkEnabled(this.modelHandle, true);
                 nf.SetEyeTrackingEnabled(this.modelHandle, true);
@@ -293,6 +321,9 @@ public class MMDCameraController {
                 nf.DeleteAnimation(this.cameraAnimHandle);
             }
         }
+        
+        // 恢复鼠标状态
+        restoreMouseGrab();
         
         // 恢复视角
         Minecraft mc = Minecraft.getInstance();
@@ -309,6 +340,9 @@ public class MMDCameraController {
         this.modelName = null;
         this.currentFrame = 0.0f;
         this.maxFrame = 0.0f;
+        
+        // 清空播放期间累积的按键队列，防止退出后延迟触发游戏操作
+        KeyMapping.releaseAll();
         
         logger.info("[舞台模式] 退出舞台模式");
     }
@@ -486,37 +520,94 @@ public class MMDCameraController {
     }
     
     /**
-     * 检查是否按下 ESC 键（由 Mixin 每帧调用）
-     * PLAYING → 结束播放（OUTRO）
-     * STANDBY/INTRO/OUTRO → 退出舞台模式
+     * 检查输入（由 Mixin 每帧调用）
+     * 
+     * ESC 处理：
+     *   PLAYING → 双击 ESC 才结束播放，第一次显示提示
+     *   STANDBY/INTRO/OUTRO → 单击 ESC 退出舞台模式
+     * 
+     * pauseGame 已被 MinecraftMixin 在舞台激活时拦截，此处统一用 GLFW 检测 ESC
      */
     public void checkEscapeKey() {
         if (state == StageState.INACTIVE) return;
         Minecraft mc = Minecraft.getInstance();
         
-        // MC 的 ESC 处理（tick 阶段）先于 Camera.setup（渲染阶段），
-        // 会抢先打开 PauseScreen 导致舞台 ESC 被吞。
-        // 检测到 PauseScreen 时，关闭它并转为舞台 ESC 处理。
+        // 防御性处理：若 PauseScreen 仍然出现（如 pauseGame 未被拦截的场景），直接关闭
         if (mc.screen instanceof PauseScreen) {
             mc.setScreen(null);
-            if (state == StageState.PLAYING) {
-                endPlayback();
-            } else {
-                exitStageMode();
-            }
             return;
         }
         
         // 如果有其他 Screen 打开（如 StageSelectScreen），不拦截 ESC（由 Screen.onClose 处理）
         if (mc.screen != null) return;
+        
         long window = mc.getWindow().getWindow();
-        if (org.lwjgl.glfw.GLFW.glfwGetKey(window, org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) == org.lwjgl.glfw.GLFW.GLFW_PRESS) {
+        boolean escNow = org.lwjgl.glfw.GLFW.glfwGetKey(window, org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+        
+        // 边缘检测：仅在按下瞬间触发
+        if (escNow && !escWasPressed) {
             if (state == StageState.PLAYING) {
-                endPlayback();
+                long now = System.nanoTime();
+                if (now - lastEscTimeNs < DOUBLE_ESC_WINDOW_NS && lastEscTimeNs != 0) {
+                    // 双击 ESC → 结束播放
+                    lastEscTimeNs = 0;
+                    endPlayback();
+                } else {
+                    // 第一次 ESC → 记录时间，显示提示
+                    lastEscTimeNs = now;
+                    if (mc.gui != null) {
+                        mc.gui.setOverlayMessage(Component.translatable("gui.mmdskin.stage.esc_hint"), false);
+                    }
+                }
             } else {
+                // STANDBY/INTRO/OUTRO → 单击即退出
                 exitStageMode();
             }
         }
+        escWasPressed = escNow;
+    }
+    
+    // ==================== 鼠标释放/捕获 ====================
+    
+    /**
+     * 切换鼠标释放/捕获（由 MouseHandlerMixin 在 PLAYING 时右键触发）
+     */
+    public void toggleMouseGrab() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mouseReleased) {
+            // 重新捕获鼠标
+            mc.mouseHandler.grabMouse();
+            // 确认实际状态（窗口非活跃时 grabMouse 会静默跳过）
+            mouseReleased = !mc.mouseHandler.isMouseGrabbed();
+        } else {
+            // 释放鼠标，允许用户切换到其他窗口
+            mc.mouseHandler.releaseMouse();
+            mouseReleased = true;
+            if (mc.gui != null) {
+                mc.gui.setOverlayMessage(Component.translatable("gui.mmdskin.stage.mouse_released"), false);
+            }
+        }
+    }
+    
+    /**
+     * 鼠标是否已被释放（用于 Mixin 判断是否阻止 grabMouse/pauseGame）
+     */
+    public boolean isMouseReleased() {
+        return mouseReleased;
+    }
+    
+    /**
+     * 恢复鼠标捕获状态（播放结束或退出舞台时调用）
+     */
+    private void restoreMouseGrab() {
+        if (mouseReleased) {
+            Minecraft mc = Minecraft.getInstance();
+            mc.mouseHandler.grabMouse();
+            // 窗口非活跃时 grabMouse 静默跳过，以实际状态为准
+            mouseReleased = !mc.mouseHandler.isMouseGrabbed();
+        }
+        escWasPressed = false;
+        lastEscTimeNs = 0;
     }
     
     // ==================== 缓动工具 ====================

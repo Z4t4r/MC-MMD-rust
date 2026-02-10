@@ -125,5 +125,7 @@
   "gui.mmdskin.reset_morph": "Reset Expression",
   
   "gui.mmdskin.stage.cinematic": "Cinema",
-  "gui.mmdskin.stage.start": "Start"
+  "gui.mmdskin.stage.start": "Start",
+  "gui.mmdskin.stage.esc_hint": "Press ESC again to exit dance",
+  "gui.mmdskin.stage.mouse_released": "Mouse released — Right-click window to recapture"
 }

@@ -21,7 +21,8 @@ public class AnimationStateManager {
      */
     public static void updateAnimationState(AbstractClientPlayer player, ModelWithEntityData model) {
         if (model.entityData.playCustomAnim) {
-            if (shouldStopCustomAnimation(player)) {
+            // 舞台动画不受移动/状态变化影响，只有 StageAnimEnd 才能结束
+            if (!model.entityData.playStageAnim && shouldStopCustomAnimation(player)) {
                 model.entityData.playCustomAnim = false;
             }
         }

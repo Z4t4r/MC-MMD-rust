@@ -57,8 +57,11 @@ public final class FirstPersonManager {
      * @param isLocalPlayer 是否为本地玩家
      */
     public static void preRender(NativeFunc nf, long modelHandle, float modelScale, boolean isLocalPlayer) {
-        boolean shouldEnable = isLocalPlayer && shouldRenderFirstPerson();
-        // 模型句柄变化时重置状态
+        // 只处理本地玩家，其他玩家的模型句柄不应干扰第一人称状态
+        if (!isLocalPlayer) return;
+        
+        boolean shouldEnable = shouldRenderFirstPerson();
+        // 模型句柄变化时重置状态（仅跟踪本地玩家的模型）
         if (modelHandle != trackedModelHandle) {
             if (trackedModelHandle != 0 && activeFirstPerson) {
                 nf.SetFirstPersonMode(trackedModelHandle, false);

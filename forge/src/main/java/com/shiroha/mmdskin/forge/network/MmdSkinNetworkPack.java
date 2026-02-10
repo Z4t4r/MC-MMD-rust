@@ -69,8 +69,9 @@ public class MmdSkinNetworkPack {
         playerUUID = new UUID(buffer.readLong(), buffer.readLong());
         
         // 根据 opCode 决定读取字符串还是整数
-        if (opCode == 1 || opCode == 3) {
-            // opCode 1: 动作执行, opCode 3: 模型选择同步
+        if (opCode == 1 || opCode == 3 || opCode == 6 || opCode == 7 || opCode == 8) {
+            // opCode 1: 动作执行, opCode 3: 模型选择同步, opCode 6: 表情同步
+            // opCode 7: 舞台开始, opCode 8: 舞台结束
             animId = buffer.readUtf();
             arg0 = 0;
         } else if (opCode == 4 || opCode == 5) {
@@ -91,8 +92,9 @@ public class MmdSkinNetworkPack {
         buffer.writeLong(playerUUID.getLeastSignificantBits());
         
         // 根据 opCode 决定写入字符串还是整数
-        if (opCode == 1 || opCode == 3) {
-            // opCode 1: 动作执行, opCode 3: 模型选择同步
+        if (opCode == 1 || opCode == 3 || opCode == 6 || opCode == 7 || opCode == 8) {
+            // opCode 1: 动作执行, opCode 3: 模型选择同步, opCode 6: 表情同步
+            // opCode 7: 舞台开始, opCode 8: 舞台结束
             buffer.writeUtf(animId);
         } else if (opCode == 4 || opCode == 5) {
             buffer.writeInt(arg0);   // 女仆模型/动作变更，写入 entityId
@@ -133,7 +135,8 @@ public class MmdSkinNetworkPack {
         switch (opCode) {
             case 1: {
                 // 执行动画（使用字符串ID）
-                MmdSkinRendererPlayerHelper.CustomAnim(target, animId);
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.CustomAnim(target, animId);
                 break;
             }
             case 3: {
@@ -143,7 +146,8 @@ public class MmdSkinNetworkPack {
             }
             case 2: {
                 // 重置物理
-                MmdSkinRendererPlayerHelper.ResetPhysics(target);
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.ResetPhysics(target);
                 break;
             }
             case 4: {
@@ -160,6 +164,24 @@ public class MmdSkinNetworkPack {
                 if (maidEntity != null) {
                     MaidMMDModelManager.playAnimation(maidEntity.getUUID(), animId);
                 }
+                break;
+            }
+            case 6: {
+                // 表情同步
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.RemoteMorph(target, animId);
+                break;
+            }
+            case 7: {
+                // 舞台动画开始
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.StageAnim(target, animId);
+                break;
+            }
+            case 8: {
+                // 舞台动画结束
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.StageAnimEnd(target);
                 break;
             }
         }

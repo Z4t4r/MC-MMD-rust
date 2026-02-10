@@ -11,7 +11,9 @@
     "GameRendererMixin",
     "KeyMappingAccessor",
     "LevelRendererMixin",
-    "ItemInHandRendererMixin"
+    "ItemInHandRendererMixin",
+    "MinecraftMixin",
+    "MouseHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

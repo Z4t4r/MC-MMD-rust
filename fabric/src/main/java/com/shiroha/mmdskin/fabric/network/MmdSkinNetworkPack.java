@@ -58,8 +58,9 @@ public class MmdSkinNetworkPack {
         UUID playerUUID = buffer.readUUID();
         
         // 根据 opCode 决定读取格式
-        if (opCode == 1 || opCode == 3) {
-            // opCode 1: 动作执行，opCode 3: 模型选择同步
+        if (opCode == 1 || opCode == 3 || opCode == 6 || opCode == 7 || opCode == 8) {
+            // opCode 1: 动作执行，opCode 3: 模型选择同步，opCode 6: 表情同步
+            // opCode 7: 舞台开始，opCode 8: 舞台结束
             String data = buffer.readUtf();
             DoInClientString(opCode, playerUUID, data);
         } else if (opCode == 4 || opCode == 5) {
@@ -114,6 +115,30 @@ public class MmdSkinNetworkPack {
             case 3: {
                 // 模型选择同步
                 PlayerModelSyncManager.onRemotePlayerModelReceived(playerUUID, data);
+                break;
+            }
+            case 6: {
+                // 表情同步
+                if (MCinstance.level == null) return;
+                Player target = MCinstance.level.getPlayerByUUID(playerUUID);
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.RemoteMorph(target, data);
+                break;
+            }
+            case 7: {
+                // 舞台动画开始
+                if (MCinstance.level == null) return;
+                Player stageTarget = MCinstance.level.getPlayerByUUID(playerUUID);
+                if (stageTarget != null)
+                    MmdSkinRendererPlayerHelper.StageAnim(stageTarget, data);
+                break;
+            }
+            case 8: {
+                // 舞台动画结束
+                if (MCinstance.level == null) return;
+                Player target = MCinstance.level.getPlayerByUUID(playerUUID);
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.StageAnimEnd(target);
                 break;
             }
         }

@@ -90,114 +90,45 @@ public class NativeFunc {
     }
 
     /**
-     * 获取已释放库的版本（通过版本文件）
+     * 生成带版本号的库文件名，从根本上避免文件替换冲突。
+     * 例如: mmd_engine.dll → mmd_engine_v1.0.1.dll
+     *       libmmd_engine.so → libmmd_engine_v1.0.1.so
      */
-    private String getInstalledVersion(String fileName) {
-        try {
-            Path versionPath = Paths.get(getGameDirectory(), fileName + ".version");
-            if (Files.exists(versionPath)) {
-                return Files.readString(versionPath).trim();
-            }
-        } catch (Exception e) {
-            logger.debug("读取版本文件失败: " + e.getMessage());
+    private static String getVersionedFileName(String baseFileName) {
+        int dotIndex = baseFileName.lastIndexOf('.');
+        if (dotIndex > 0) {
+            return baseFileName.substring(0, dotIndex) + "_" + libraryVersion + baseFileName.substring(dotIndex);
         }
-        return null;
-    }
-    
-    /**
-     * 保存版本文件
-     */
-    private void saveInstalledVersion(String fileName, String version) {
-        try {
-            Path versionPath = Paths.get(getGameDirectory(), fileName + ".version");
-            Files.writeString(versionPath, version);
-        } catch (Exception e) {
-            logger.warn("保存版本文件失败: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * 重命名旧库文件为 .old
-     */
-    private void renameOldLibrary(String fileName) {
-        try {
-            Path libPath = Paths.get(getGameDirectory(), fileName);
-            Path oldPath = Paths.get(getGameDirectory(), fileName + ".old");
-            if (Files.exists(libPath)) {
-                // 删除可能存在的旧 .old 文件
-                Files.deleteIfExists(oldPath);
-                Files.move(libPath, oldPath, StandardCopyOption.REPLACE_EXISTING);
-                logger.info("已将旧版本库重命名为: " + fileName + ".old");
-            }
-        } catch (Exception e) {
-            logger.warn("重命名旧库文件失败: " + e.getMessage());
-        }
+        return baseFileName + "_" + libraryVersion;
     }
 
     /**
-     * 应用上次版本校验留下的 .new 文件（Windows 下 DLL 被锁定时写入）
-     * 此时旧进程已退出，DLL 不再被锁定，可以安全替换
+     * 从模组内置资源提取原生库。
+     * 使用版本化文件名（如 mmd_engine_v1.0.1.dll），新旧版本共存互不干扰。
      */
-    private void applyPendingNewLibrary(String fileName) {
-        try {
-            Path newPath = Paths.get(getGameDirectory(), fileName + ".new");
-            if (!Files.exists(newPath)) return;
-            
-            Path targetPath = Paths.get(getGameDirectory(), fileName);
-            if (Files.exists(targetPath)) {
-                renameOldLibrary(fileName);
-            }
-            Files.move(newPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-            // 清除旧版本缓存，extractNativeLibrary 会重新写入正确版本
-            Files.deleteIfExists(Paths.get(getGameDirectory(), fileName + ".version"));
-            logger.info("已将待更新库 " + fileName + ".new 替换为正式文件");
-        } catch (Exception e) {
-            logger.warn("应用待更新库失败: " + fileName + ".new - " + e.getMessage());
-        }
-    }
-
     private File extractNativeLibrary(String resourcePath, String fileName) {
         try {
-            Path targetPath = Paths.get(getGameDirectory(), fileName);
+            String versionedName = getVersionedFileName(fileName);
+            Path targetPath = Paths.get(getGameDirectory(), versionedName);
             File targetFile = targetPath.toFile();
-            
-            // 检查已安装版本
-            String installedVersion = getInstalledVersion(fileName);
-            
-            if (targetFile.exists() && libraryVersion.equals(installedVersion)) {
-                // 版本匹配，直接使用现有文件
-                logger.info("原生库版本匹配 (" + libraryVersion + ")，使用缓存: " + fileName);
+
+            if (targetFile.exists()) {
+                logger.info("原生库已存在，使用缓存: " + versionedName);
                 return targetFile;
             }
-            
-            // 版本不匹配或文件不存在，需要释放新版本
+
             try (InputStream is = NativeFunc.class.getResourceAsStream(resourcePath)) {
                 if (is == null) {
                     logger.warn("内置原生库未找到: " + resourcePath);
-                    if (targetFile.exists()) {
-                        logger.warn("将回退使用旧版本库: " + fileName + " (版本: " + (installedVersion != null ? installedVersion : "未知") + ")");
-                        return targetFile;
-                    }
                     return null;
                 }
-
-                if (targetFile.exists()) {
-                    // 版本不匹配，重命名旧文件
-                    logger.info("检测到版本变更: " + (installedVersion != null ? installedVersion : "未知") + " -> " + libraryVersion);
-                    renameOldLibrary(fileName);
-                }
-
-                // 释放新版本
-                Files.copy(is, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(is, targetPath);
             }
 
-            // 保存版本文件
-            saveInstalledVersion(fileName, libraryVersion);
-            
-            logger.info("已从模组内置资源释放原生库: " + fileName + " (版本: " + libraryVersion + ")");
+            logger.info("已从模组内置资源释放原生库: " + versionedName);
             return targetFile;
         } catch (Exception e) {
-            logger.error("提取原生库失败: " + resourcePath, e);
+            logger.error("提取原生库失败: " + resourcePath + " - " + e.getMessage());
             return null;
         }
     }
@@ -207,12 +138,11 @@ public class NativeFunc {
      */
     private File downloadNativeLibrary(String downloadFileName, String localFileName) {
         try {
-            Path targetPath = Paths.get(getGameDirectory(), localFileName);
+            String versionedName = getVersionedFileName(localFileName);
+            Path targetPath = Paths.get(getGameDirectory(), versionedName);
 
-            // 已有版本匹配的文件，无需下载
-            String installedVersion = getInstalledVersion(localFileName);
-            if (targetPath.toFile().exists() && libraryVersion.equals(installedVersion)) {
-                logger.info("原生库版本匹配，使用已下载的缓存: " + localFileName);
+            if (targetPath.toFile().exists()) {
+                logger.info("原生库已存在，使用已下载的缓存: " + versionedName);
                 return targetPath.toFile();
             }
 
@@ -249,26 +179,21 @@ public class NativeFunc {
             logger.info("开始下载，文件大小: " +
                     (contentLength > 0 ? (contentLength / 1024) + " KB" : "未知"));
 
-            // 先下载到临时文件，完成后再移动，避免半成品文件
-            Path tempPath = Paths.get(getGameDirectory(), localFileName + ".download");
+            // 先下载到临时文件，完成后再重命名，避免半成品文件
+            Path tempPath = Paths.get(getGameDirectory(), versionedName + ".download");
             try (InputStream is = conn.getInputStream()) {
                 Files.copy(is, tempPath, StandardCopyOption.REPLACE_EXISTING);
             }
 
-            // 旧文件存在时先重命名为 .old
-            if (Files.exists(targetPath)) {
-                renameOldLibrary(localFileName);
-            }
-
             Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
             conn.disconnect();
-            saveInstalledVersion(localFileName, libraryVersion);
-            logger.info("原生库下载完成: " + localFileName);
+            logger.info("原生库下载完成: " + versionedName);
             return targetPath.toFile();
         } catch (Exception e) {
-            logger.error("下载原生库失败: " + downloadFileName, e);
+            logger.error("下载原生库失败: " + downloadFileName + " - " + e.getMessage());
             try {
-                Files.deleteIfExists(Paths.get(getGameDirectory(), localFileName + ".download"));
+                String versionedName = getVersionedFileName(localFileName);
+                Files.deleteIfExists(Paths.get(getGameDirectory(), versionedName + ".download"));
             } catch (Exception ignored) {}
             return null;
         }
@@ -279,11 +204,59 @@ public class NativeFunc {
     }
 
     /**
+     * 清理旧版本库文件和遗留的辅助文件（.version/.old/.new/.download）。
+     * 采用尽力清理策略，失败不影响正常运行。
+     */
+    private void cleanupOldLibraries(String baseFileName) {
+        try {
+            File gameDir = new File(getGameDirectory());
+            int dotIndex = baseFileName.lastIndexOf('.');
+            if (dotIndex <= 0) return;
+
+            String baseName = baseFileName.substring(0, dotIndex);
+            String ext = baseFileName.substring(dotIndex);
+            String currentVersioned = getVersionedFileName(baseFileName);
+
+            File[] files = gameDir.listFiles();
+            if (files == null) return;
+
+            for (File f : files) {
+                String name = f.getName();
+                if (name.equals(currentVersioned)) continue;
+
+                boolean shouldDelete = false;
+
+                // 旧版本化文件: mmd_engine_v*.dll / libmmd_engine_v*.so 等
+                if (name.startsWith(baseName + "_v") && name.endsWith(ext)) {
+                    shouldDelete = true;
+                }
+                // 遗留的非版本化文件和辅助文件（旧方案残留）
+                if (name.equals(baseFileName)
+                        || name.equals(baseFileName + ".version")
+                        || name.equals(baseFileName + ".old")
+                        || name.equals(baseFileName + ".new")
+                        || name.equals(baseFileName + ".download")) {
+                    shouldDelete = true;
+                }
+
+                if (shouldDelete) {
+                    try {
+                        if (f.delete()) {
+                            logger.info("已清理旧版本库文件: " + name);
+                        }
+                    } catch (Exception e) {
+                        logger.debug("清理旧文件失败（可能仍被锁定）: " + name);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("清理旧版本库文件时出错: " + e.getMessage());
+        }
+    }
+
+    /**
      * 运行时版本校验：加载原生库后，调用 GetVersion() 与 Java 侧 libraryVersion 比较。
-     * JVM 无法卸载已加载的 native library，因此版本不匹配时：
-     * - 清除 .version 缓存文件（确保下次启动不会命中缓存）
-     * - 从 JAR 内置资源释放新版本文件覆盖旧文件
-     * - 当前会话继续使用已加载的旧版本，下次启动将加载新版本
+     * 使用版本化文件名后，版本不匹配仅在开发环境或用户手动放置库文件时可能出现。
      */
     private void verifyLoadedLibraryVersion() {
         try {
@@ -292,61 +265,8 @@ public class NativeFunc {
                 logger.info("原生库版本校验通过: " + rustVersion);
                 return;
             }
-
             logger.warn("原生库版本不匹配！Java 侧期望: " + libraryVersion + ", Rust 侧实际: " + rustVersion);
-            logger.warn("当前会话将继续使用已加载的旧版本，正在准备新版本供下次启动...");
-
-            // 确定当前平台的文件名和资源路径
-            String fileName;
-            String resourcePath;
-            if (isWindows) {
-                String archDir = isArm64 ? "windows-arm64" : "windows-x64";
-                fileName = "mmd_engine.dll";
-                resourcePath = "/natives/" + archDir + "/mmd_engine.dll";
-            } else if (isMacOS) {
-                String archDir = isArm64 ? "macos-arm64" : "macos-x64";
-                fileName = "libmmd_engine.dylib";
-                resourcePath = "/natives/" + archDir + "/libmmd_engine.dylib";
-            } else if (isAndroid) {
-                fileName = "libmmd_engine.so";
-                resourcePath = "/natives/android-arm64/libmmd_engine.so";
-            } else {
-                String archDir;
-                if (isArm64) archDir = "linux-arm64";
-                else if (isLoongArch64) archDir = "linux-loongarch64";
-                else if (isRiscv64) archDir = "linux-riscv64";
-                else archDir = "linux-x64";
-                fileName = "libmmd_engine.so";
-                resourcePath = "/natives/" + archDir + "/libmmd_engine.so";
-            }
-
-            // 清除 .version 缓存（强制下次重新释放）
-            try {
-                Path versionPath = Paths.get(getGameDirectory(), fileName + ".version");
-                Files.deleteIfExists(versionPath);
-                logger.info("已清除版本缓存文件: " + fileName + ".version");
-            } catch (Exception e) {
-                logger.warn("清除版本缓存失败: " + e.getMessage());
-            }
-
-            // 尝试释放新版本文件（Windows 下已加载的 DLL 无法覆盖，写入 .new 文件）
-            try (InputStream is = NativeFunc.class.getResourceAsStream(resourcePath)) {
-                if (is != null) {
-                    Path targetPath = Paths.get(getGameDirectory(), fileName);
-                    try {
-                        Files.copy(is, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                        saveInstalledVersion(fileName, libraryVersion);
-                        logger.info("已释放新版本原生库，下次启动将加载: " + libraryVersion);
-                    } catch (Exception ex) {
-                        // Windows 下 DLL 被锁定，写入 .new 文件
-                        Path newPath = Paths.get(getGameDirectory(), fileName + ".new");
-                        Files.copy(is, newPath, StandardCopyOption.REPLACE_EXISTING);
-                        logger.info("当前库文件被锁定，已将新版本写入: " + fileName + ".new（下次启动前请手动替换，或等待自动替换）");
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("释放新版本原生库失败: " + e.getMessage());
-            }
+            logger.warn("这通常发生在开发环境或手动放置库文件时，请确保 Rust 引擎和 Java 模组版本一致。");
         } catch (Exception | Error e) {
             logger.warn("运行时版本校验失败（GetVersion 调用异常）: " + e.getMessage());
         }
@@ -471,12 +391,6 @@ public class NativeFunc {
         String fileName;
         String downloadFileName;
 
-        // 检查上次版本校验留下的 .new 文件（Windows 下 DLL 被锁定时写入）
-        // 此时旧进程已退出，DLL 不再被锁定，可以安全替换
-        applyPendingNewLibrary("mmd_engine.dll");
-        applyPendingNewLibrary("libmmd_engine.dylib");
-        applyPendingNewLibrary("libmmd_engine.so");
-        
         if (isWindows) {
             String archDir = isArm64 ? "windows-arm64" : "windows-x64";
             logger.info("Windows Env Detected! Arch: " + archDir);
@@ -510,8 +424,9 @@ public class NativeFunc {
             throw new UnsupportedOperationException("Unsupported OS: " + osName);
         }
         
-        File libFile = new File(getGameDirectory(), fileName);
-        
+        // 尽力清理旧版本库文件和遗留辅助文件（失败不影响正常运行）
+        cleanupOldLibraries(fileName);
+
         // 1. 优先从模组内置资源提取（确保版本一致）
         File extracted = extractNativeLibrary(resourcePath, fileName);
         if (extracted != null) {
@@ -536,27 +451,9 @@ public class NativeFunc {
             }
         }
 
-        // 3. 回退到游戏目录的外部文件（用户自定义版本）
-        // 同时检查不带后缀的文件名（如 mmd_engine.dll）和带平台后缀的文件名（如 mmd_engine-windows-x64.dll）
-        File[] candidates = new File[] {
-            libFile,
-            new File(getGameDirectory(), downloadFileName)
-        };
-        for (File candidate : candidates) {
-            if (candidate.exists()) {
-                try {
-                    LoadLibrary(candidate);
-                    logger.info("已从游戏目录加载原生库: " + candidate.getName());
-                    return;
-                } catch (Error e) {
-                    logger.error("外部库文件加载失败: " + candidate.getName() + " - " + e.getMessage());
-                }
-            }
-        }
-
-        // 4. 全部失败
-        throw new UnsatisfiedLinkError("无法加载原生库: " + fileName +
-            "（也尝试了 " + downloadFileName + "），请检查网络连接或从 " + RELEASE_BASE_URL + " 手动下载");
+        // 3. 全部失败
+        throw new UnsatisfiedLinkError("无法加载原生库: " + getVersionedFileName(fileName) +
+            "，请检查网络连接或从 " + RELEASE_BASE_URL + " 手动下载");
     }
 
     public native String GetVersion();

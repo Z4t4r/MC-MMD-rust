@@ -86,6 +86,30 @@ public class MmdSkinNetworkPack {
                     MaidMMDModelManager.playAnimation(maidEntity.getUUID(), payload.stringArg());
                 break;
             }
+            case 7: {
+                // 舞台动画开始（远程玩家）
+                if (mc.level == null) return;
+                Player target = mc.level.getPlayerByUUID(playerUUID);
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.StageAnimStart(target, payload.stringArg());
+                break;
+            }
+            case 8: {
+                // 舞台动画结束（远程玩家）
+                if (mc.level == null) return;
+                Player target = mc.level.getPlayerByUUID(playerUUID);
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.StageAnimEnd(target);
+                break;
+            }
+            case 6: {
+                // 表情同步（远程玩家）
+                if (mc.level == null) return;
+                Player target = mc.level.getPlayerByUUID(playerUUID);
+                if (target != null)
+                    MmdSkinRendererPlayerHelper.RemoteMorph(target, payload.stringArg());
+                break;
+            }
         }
     }
 }

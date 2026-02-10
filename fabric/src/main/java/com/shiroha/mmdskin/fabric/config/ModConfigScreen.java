@@ -478,6 +478,8 @@ public class ModConfigScreen {
             MmdSkinConfig.save();
             // 同步渲染模式设置到工厂
             com.shiroha.mmdskin.renderer.core.RenderModeManager.setUseGpuSkinning(data.gpuSkinningEnabled);
+            // 重载所有模型以应用新的渲染模式（CPU/GPU 蒙皮热切换）
+            com.shiroha.mmdskin.renderer.model.MMDModelManager.forceReloadAllModels();
             // 同步物理配置到 Rust 引擎
             try {
                 com.shiroha.mmdskin.NativeFunc.GetInst().SetPhysicsConfig(

@@ -13,7 +13,9 @@ import com.shiroha.mmdskin.ui.wheel.ConfigWheelScreen;
 import com.shiroha.mmdskin.ui.wheel.MaidConfigWheelScreen;
 import com.shiroha.mmdskin.ui.network.MorphWheelNetworkHandler;
 import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
+import com.shiroha.mmdskin.ui.network.StageNetworkHandler;
 import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
+import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
 
 import java.io.File;
 import net.fabricmc.api.EnvType;
@@ -119,6 +121,20 @@ public class MmdSkinRegisterClient {
             }
         });
         
+        // 注册舞台网络发送器
+        StageNetworkHandler.setStageStartSender(stageData -> {
+            LocalPlayer player = MCinstance.player;
+            if (player != null) {
+                MmdSkinNetworkPack.sendToServer(7, player.getUUID(), stageData);
+            }
+        });
+        StageNetworkHandler.setStageEndSender(() -> {
+            LocalPlayer player = MCinstance.player;
+            if (player != null) {
+                MmdSkinNetworkPack.sendToServer(8, player.getUUID(), "");
+            }
+        });
+        
         // 主配置轮盘按键事件（按住打开，松开选择）
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (MCinstance.player == null) return;
@@ -190,10 +206,11 @@ public class MmdSkinRegisterClient {
             });
         });
         
-        // 注册玩家断开连接事件（清理远程玩家缓存 + 舞台模式）
+        // 注册玩家断开连接事件（清理远程玩家缓存 + 舞台模式 + 远程舞台动画句柄）
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             MMDCameraController.getInstance().exitStageMode();
             PlayerModelSyncManager.onDisconnect();
+            MmdSkinRendererPlayerHelper.onDisconnect();
         });
         
         logger.info("MMD Skin 客户端注册完成");

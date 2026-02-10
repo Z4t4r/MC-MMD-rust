@@ -50,7 +50,7 @@ public record MmdSkinNetworkPack(int opCode, UUID playerUUID, String animId, int
     private static void encode(FriendlyByteBuf buffer, MmdSkinNetworkPack pack) {
         buffer.writeInt(pack.opCode);
         buffer.writeUUID(pack.playerUUID);
-        if (pack.opCode == 1 || pack.opCode == 3) {
+        if (pack.opCode == 1 || pack.opCode == 3 || pack.opCode == 6 || pack.opCode == 7 || pack.opCode == 8) {
             buffer.writeUtf(pack.animId);
         } else if (pack.opCode == 4 || pack.opCode == 5) {
             buffer.writeInt(pack.arg0);
@@ -66,7 +66,7 @@ public record MmdSkinNetworkPack(int opCode, UUID playerUUID, String animId, int
         String animId = "";
         int arg0 = 0;
         
-        if (opCode == 1 || opCode == 3) {
+        if (opCode == 1 || opCode == 3 || opCode == 6 || opCode == 7 || opCode == 8) {
             animId = buffer.readUtf();
         } else if (opCode == 4 || opCode == 5) {
             arg0 = buffer.readInt();
@@ -118,6 +118,9 @@ public record MmdSkinNetworkPack(int opCode, UUID playerUUID, String animId, int
                     MaidMMDModelManager.playAnimation(maidEntity.getUUID(), animId);
                 }
             }
+            case 7 -> { if (target != null) MmdSkinRendererPlayerHelper.StageAnimStart(target, animId); }
+            case 8 -> { if (target != null) MmdSkinRendererPlayerHelper.StageAnimEnd(target); }
+            case 6 -> { if (target != null) MmdSkinRendererPlayerHelper.RemoteMorph(target, animId); }
         }
     }
 }

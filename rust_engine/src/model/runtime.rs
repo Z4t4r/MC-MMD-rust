@@ -1337,9 +1337,6 @@ impl MmdModel {
             physics.add_joint(pmx_joint);
         }
         
-        // 设置胸部-头发碰撞过滤（防止头发压塌胸部）
-        physics.setup_bust_hair_collision_filter();
-        
         // 统计刚体类型
         use crate::physics::RigidBodyType;
         let kinematic_count = physics.mmd_rigid_bodies.iter()
@@ -1450,8 +1447,8 @@ impl MmdModel {
                     RigidBodyType::DynamicWithBonePosition => "DynamicWithBonePosition",
                 };
                 info.push_str(&format!(
-                    "    {{\"index\": {}, \"name\": \"{}\", \"type\": \"{}\", \"bone\": {}, \"mass\": {:.3}, \"is_bust\": {}}}",
-                    i, rb.name, type_str, rb.bone_index, rb.mass, rb.is_bust
+                    "    {{\"index\": {}, \"name\": \"{}\", \"type\": \"{}\", \"bone\": {}, \"mass\": {:.3}}}",
+                    i, rb.name, type_str, rb.bone_index, rb.mass
                 ));
                 if i < physics.mmd_rigid_bodies.len() - 1 {
                     info.push_str(",\n");

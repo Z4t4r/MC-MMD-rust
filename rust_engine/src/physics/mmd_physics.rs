@@ -67,6 +67,8 @@ pub struct MMDPhysics {
     pub joints_enabled: bool,
     /// 上一帧的模型变换（用于计算模型整体移动速度）
     pub prev_model_transform: Option<Mat4>,
+    /// 时间累积器（固定时间步模式）
+    accumulator: f32,
 }
 
 impl MMDPhysics {
@@ -120,6 +122,7 @@ impl MMDPhysics {
             gravity: Vector::new(0.0, config.gravity_y, 0.0),
             joints_enabled: config.joints_enabled,
             prev_model_transform: None,
+            accumulator: 0.0,
         }
     }
     
@@ -248,17 +251,8 @@ impl MMDPhysics {
             );
         }
         
-        // 判断关联的刚体是否为胸部刚体（任一为胸部则使用胸部参数）
-        let is_bust = self.mmd_rigid_bodies[rb_a_idx].is_bust
-            || self.mmd_rigid_bodies[rb_b_idx].is_bust;
-        
-        // 如果是胸部关节但胸部物理未启用，跳过
-        if is_bust && !get_config().bust_physics_enabled {
-            return None;
-        }
-        
-        // 创建 Rapier 关节
-        let joint = mmd_joint.build_joint(is_bust);
+        // 创建 Rapier 关节（限制 + ForceBased motor 弹簧）
+        let joint = mmd_joint.build_joint();
         let joint_handle = self.impulse_joint_set.insert(
             rb_a_handle,
             rb_b_handle,
@@ -270,80 +264,12 @@ impl MMDPhysics {
         self.mmd_joints.push(mmd_joint);
         Some(index)
     }
-    
-    /// 设置胸部-头发碰撞过滤
-    /// 
-    /// 在所有刚体和关节添加完成后调用。
-    /// 收集胸部和头发刚体各自占用的 PMX 碰撞组位，
-    /// 然后从对方的碰撞过滤掩码中清除这些位，
-    /// 使头发碰撞体和胸部碰撞体互不碰撞，避免头发压塌胸部。
-    pub fn setup_bust_hair_collision_filter(&mut self) {
-        // 第一遍：收集胸部和头发刚体各自使用的碰撞组位
-        let mut bust_membership_bits: u32 = 0;
-        let mut hair_membership_bits: u32 = 0;
-        let mut bust_count = 0u32;
-        let mut hair_count = 0u32;
-        
-        for mmd_rb in &self.mmd_rigid_bodies {
-            if mmd_rb.is_bust {
-                bust_membership_bits |= 1 << mmd_rb.group;
-                bust_count += 1;
-            }
-            if mmd_rb.is_hair {
-                hair_membership_bits |= 1 << mmd_rb.group;
-                hair_count += 1;
-            }
-        }
-        
-        // 如果不存在胸部或头发刚体，无需过滤
-        if bust_membership_bits == 0 || hair_membership_bits == 0 {
-            return;
-        }
-        
-        log::info!(
-            "[碰撞过滤] 检测到 {} 个胸部刚体(组位=0x{:04X}), {} 个头发刚体(组位=0x{:04X})，设置互斥碰撞",
-            bust_count, bust_membership_bits, hair_count, hair_membership_bits
-        );
-        
-        // 第二遍：修改碰撞体的碰撞组
-        // - 胸部碰撞体：从 filter 中清除头发组位
-        // - 头发碰撞体：从 filter 中清除胸部组位
-        for mmd_rb in &self.mmd_rigid_bodies {
-            if !mmd_rb.is_bust && !mmd_rb.is_hair {
-                continue;
-            }
-            
-            if let Some(collider_handle) = mmd_rb.collider_handle {
-                if let Some(collider) = self.collider_set.get_mut(collider_handle) {
-                    let current_groups = collider.collision_groups();
-                    let current_membership = current_groups.memberships.bits();
-                    let mut current_filter = current_groups.filter.bits();
-                    
-                    if mmd_rb.is_bust {
-                        // 胸部：不与头发碰撞
-                        current_filter &= !hair_membership_bits;
-                    }
-                    if mmd_rb.is_hair {
-                        // 头发：不与胸部碰撞
-                        current_filter &= !bust_membership_bits;
-                    }
-                    
-                    let new_groups = InteractionGroups::new(
-                        Group::from_bits_truncate(current_membership),
-                        Group::from_bits_truncate(current_filter),
-                    );
-                    collider.set_collision_groups(new_groups);
-                    // solver_groups 也同步修改，确保即使检测到碰撞也不产生力
-                    collider.set_solver_groups(new_groups);
-                }
-            }
-        }
-    }
-    
+
     /// 更新物理模拟
-    /// 
-    /// 使用时间累积器模式：前 N-1 步使用固定 dt，最后一步消化剩余时间，
-    /// 保证物理模拟时间完整覆盖 delta_time，不丢失任何时间。
+    ///
+    /// 使用标准的 "Fix Your Timestep" 累积器模式：
+    /// 每次物理步进始终使用固定 dt，剩余不足一步的时间保留到下一帧。
+    /// 这保证了不同游戏帧率下物理行为完全一致。
     /// 
     /// # 参数
     /// - `delta_time`: 经过的时间（秒）
@@ -351,30 +277,24 @@ impl MMDPhysics {
         let fixed_dt = 1.0 / self.fps;
         let max_steps = self.max_substep_count.max(1);
         
-        // 计算需要多少个固定步
-        let needed_steps = (delta_time / fixed_dt).ceil() as i32;
+        // 累积本帧时间
+        self.accumulator += delta_time;
         
-        if needed_steps <= max_steps {
-            // 帧率足够高，全部使用固定 dt
-            for _ in 0..needed_steps {
-                self.step_once(fixed_dt);
-            }
-        } else {
-            // 帧率过低，前 (max_steps - 1) 步用固定 dt，最后一步用剩余时间
-            let fixed_steps = max_steps - 1;
-            let consumed = fixed_steps as f32 * fixed_dt;
-            let remaining = delta_time - consumed;
-            
-            for _ in 0..fixed_steps {
-                self.step_once(fixed_dt);
-            }
-            // 最后一步消化剩余时间
-            self.step_once(remaining);
+        // 防止螺旋死亡：如果累积时间过大，截断到最大可处理时间
+        let max_accumulator = fixed_dt * max_steps as f32;
+        if self.accumulator > max_accumulator {
+            self.accumulator = max_accumulator;
         }
         
+        // 以固定步长消耗累积时间
+        while self.accumulator >= fixed_dt {
+            self.step_once(fixed_dt);
+            self.accumulator -= fixed_dt;
+        }
+
         self.clamp_velocities();
     }
-    
+
     /// 执行一次物理步进
     fn step_once(&mut self, dt: f32) {
         self.integration_parameters.dt = dt;
@@ -563,18 +483,22 @@ impl MMDPhysics {
             -local_vel_z * strength
         );
         
+        // 给 Dynamic 刚体施加惯性力（非速度累积）
+        // 使用 add_force 而非 set_linvel：力每帧重新设置，不会跨帧累积
+        // 模型什么速度就给多大的力（F = m * inertia_velocity）
         for mmd_rb in &self.mmd_rigid_bodies {
-            // 只处理动态刚体
             if mmd_rb.body_type == RigidBodyType::Kinematic {
                 continue;
             }
             
             if let Some(rb_handle) = mmd_rb.rigid_body_handle {
                 if let Some(rb) = self.rigid_body_set.get_mut(rb_handle) {
-                    // 获取当前速度并叠加惯性速度
-                    let current_vel = rb.linvel().clone();
-                    let new_vel = current_vel + inertia_velocity;
-                    rb.set_linvel(new_vel, true);
+                    let mass = rb.mass();
+                    // F = m * v / dt，将速度转换为力（冲量等效）
+                    // 这样在一个物理步内产生的速度变化 ≈ inertia_velocity
+                    let force = inertia_velocity * mass / dt;
+                    rb.reset_forces(false);
+                    rb.add_force(force, true);
                 }
             }
         }

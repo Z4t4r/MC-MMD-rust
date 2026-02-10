@@ -184,6 +184,31 @@ public class MMDModelGpuSkinning implements IMMDModel {
             return null;
         }
         
+        MMDModelGpuSkinning result = createFromHandle(model, modelDir);
+        if (result == null) {
+            // createFromHandle 不再负责删除句柄，同步调用路径需自行清理
+            nf.DeleteModel(model);
+        }
+        return result;
+    }
+    
+    /**
+     * 从已加载的模型句柄创建渲染实例（Phase 2：GL 资源创建，必须在渲染线程调用）
+     * Phase 1（nf.LoadModelPMX/PMD）已在后台线程完成
+     */
+    public static MMDModelGpuSkinning createFromHandle(long model, String modelDir) {
+        if (nf == null) nf = NativeFunc.GetInst();
+        
+        // 初始化 Compute Shader（懒加载，全局共享）
+        if (computeShader == null) {
+            computeShader = new SkinningComputeShader();
+            if (!computeShader.init()) {
+                logger.error("蒙皮 Compute Shader 初始化失败，回退到 CPU 蒙皮");
+                nf.DeleteModel(model);
+                return null;
+            }
+        }
+        
         // 资源追踪变量（用于异常时清理）
         int vao = 0, indexVbo = 0, posVbo = 0, norVbo = 0, uv0Vbo = 0;
         int boneIdxVbo = 0, boneWgtVbo = 0, colorVbo = 0, uv1Vbo = 0, uv2Vbo = 0;
@@ -475,11 +500,10 @@ public class MMDModelGpuSkinning implements IMMDModel {
             return result;
             
         } catch (Exception e) {
-            // 异常时清理所有已分配的资源
+            // 异常时清理所有已分配的 GL/内存资源
+            // 注意：不清理模型句柄（model），由调用者负责清理，
+            // 避免 RenderModeManager 多工厂回退时 use-after-free
             logger.error("GPU 蒙皮模型创建失败，清理资源: {}", e.getMessage());
-            
-            // 清理原生模型
-            nf.DeleteModel(model);
             
             // 清理 GL 资源
             if (vao > 0) GL46C.glDeleteVertexArrays(vao);

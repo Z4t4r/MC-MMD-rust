@@ -137,6 +137,21 @@ public class MMDModelOpenGL implements IMMDModel {
             logger.info(String.format("Cannot open model: '%s'.", modelFilename));
             return null;
         }
+        MMDModelOpenGL result = createFromHandle(model, modelDir);
+        if (result == null) {
+            nf.DeleteModel(model);
+        }
+        return result;
+    }
+    
+    /**
+     * 从已加载的模型句柄创建渲染实例（Phase 2：GL 资源创建，必须在渲染线程调用）
+     * Phase 1（nf.LoadModelPMX/PMD）已在后台线程完成
+     */
+    public static MMDModelOpenGL createFromHandle(long model, String modelDir) {
+        if (!isShaderInited && isMMDShaderEnabled)
+            InitShader();
+        if (nf == null) nf = NativeFunc.GetInst();
         BufferUploader.reset();
         //Model exists,now we prepare data for OpenGL
         int vertexArrayObject = GL46C.glGenVertexArrays();

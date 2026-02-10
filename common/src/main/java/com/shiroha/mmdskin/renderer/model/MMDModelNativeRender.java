@@ -114,7 +114,31 @@ public class MMDModelNativeRender implements IMMDModel {
                 logger.error("加载模型失败: {}", pmxPath);
                 return null;
             }
-            
+            MMDModelNativeRender result = createFromHandle(model, modelDirectory);
+            if (result == null) {
+                nf.DeleteModel(model);
+            }
+            return result;
+        } catch (Exception e) {
+            logger.error("加载模型异常", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 从已加载的模型句柄创建渲染实例（Phase 2：GL 资源创建，必须在渲染线程调用）
+     * Phase 1（nf.LoadModelPMX）已在后台线程完成
+     */
+    public static MMDModelNativeRender createFromHandle(long model, String modelDirectory) {
+        if (nf == null) nf = NativeFunc.GetInst();
+        
+        // 资源追踪变量（用于异常时清理）
+        ByteBuffer posBuffer = null, norBuffer = null, uv0Buffer = null;
+        VertexBuffer[] subMeshVertexBuffers = null;
+        FloatBuffer matMorphResultsBuf = null;
+        ByteBuffer matMorphResultsByteBuf = null;
+        
+        try {
             int vertexCount = (int) nf.GetVertexCount(model);
             
             // 分配缓冲区
@@ -122,9 +146,9 @@ public class MMDModelNativeRender implements IMMDModel {
             int norSize = vertexCount * 12;
             int uvSize = vertexCount * 8;
             
-            ByteBuffer posBuffer = MemoryUtil.memAlloc(posSize);
-            ByteBuffer norBuffer = MemoryUtil.memAlloc(norSize);
-            ByteBuffer uv0Buffer = MemoryUtil.memAlloc(uvSize);
+            posBuffer = MemoryUtil.memAlloc(posSize);
+            norBuffer = MemoryUtil.memAlloc(norSize);
+            uv0Buffer = MemoryUtil.memAlloc(uvSize);
             
             // 加载索引
             long idxCount = nf.GetIndexCount(model);
@@ -153,8 +177,7 @@ public class MMDModelNativeRender implements IMMDModel {
                 mats[i] = new Material();
                 String texPath = nf.GetMaterialTex(model, i);
                 if (texPath != null && !texPath.isEmpty()) {
-                    String fullPath = modelDirectory + "/" + texPath;
-                    MMDTextureManager.Texture tex = MMDTextureManager.GetTexture(fullPath);
+                    MMDTextureManager.Texture tex = MMDTextureManager.GetTexture(texPath);
                     if (tex != null) {
                         mats[i].tex = tex.tex;
                         mats[i].hasAlpha = tex.hasAlpha;
@@ -164,7 +187,7 @@ public class MMDModelNativeRender implements IMMDModel {
             
             // 创建子网格 VertexBuffer
             long subMeshCount = nf.GetSubMeshCount(model);
-            VertexBuffer[] subMeshVertexBuffers = new VertexBuffer[(int) subMeshCount];
+            subMeshVertexBuffers = new VertexBuffer[(int) subMeshCount];
             for (int i = 0; i < subMeshCount; i++) {
                 subMeshVertexBuffers[i] = new VertexBuffer(VertexBuffer.Usage.DYNAMIC);
             }
@@ -188,9 +211,11 @@ public class MMDModelNativeRender implements IMMDModel {
             if (matMorphCount > 0) {
                 int floatCount = matMorphCount * 56;
                 result.materialMorphResultCount = matMorphCount;
-                result.materialMorphResultsBuffer = MemoryUtil.memAllocFloat(floatCount);
-                result.materialMorphResultsByteBuffer = MemoryUtil.memAlloc(floatCount * 4);
-                result.materialMorphResultsByteBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN);
+                matMorphResultsBuf = MemoryUtil.memAllocFloat(floatCount);
+                matMorphResultsByteBuf = MemoryUtil.memAlloc(floatCount * 4);
+                matMorphResultsByteBuf.order(java.nio.ByteOrder.LITTLE_ENDIAN);
+                result.materialMorphResultsBuffer = matMorphResultsBuf;
+                result.materialMorphResultsByteBuffer = matMorphResultsByteBuf;
             }
             
             // 启用自动眨眼
@@ -200,7 +225,22 @@ public class MMDModelNativeRender implements IMMDModel {
             return result;
             
         } catch (Exception e) {
-            logger.error("加载模型异常", e);
+            logger.error("原生渲染模型创建失败，清理资源", e);
+            
+            // 清理 MemoryUtil 分配的缓冲区
+            if (posBuffer != null) MemoryUtil.memFree(posBuffer);
+            if (norBuffer != null) MemoryUtil.memFree(norBuffer);
+            if (uv0Buffer != null) MemoryUtil.memFree(uv0Buffer);
+            if (matMorphResultsBuf != null) MemoryUtil.memFree(matMorphResultsBuf);
+            if (matMorphResultsByteBuf != null) MemoryUtil.memFree(matMorphResultsByteBuf);
+            
+            // 清理 VertexBuffer
+            if (subMeshVertexBuffers != null) {
+                for (VertexBuffer vb : subMeshVertexBuffers) {
+                    if (vb != null) vb.close();
+                }
+            }
+            
             return null;
         }
     }

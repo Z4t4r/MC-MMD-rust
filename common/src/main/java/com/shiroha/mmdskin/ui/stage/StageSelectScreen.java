@@ -7,6 +7,7 @@ import com.shiroha.mmdskin.config.StageConfig;
 import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
+import com.shiroha.mmdskin.ui.network.StageNetworkHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
@@ -387,7 +388,7 @@ public class StageSelectScreen extends Screen {
         int sliderH = 10;
         
         // 滑块标签 + 数值
-        String heightLabel = String.format("H: %+.1f", cameraHeightOffset);
+        String heightLabel = String.format("H: %+.2f", cameraHeightOffset);
         g.drawString(this.font, heightLabel, sliderX, sliderY, COLOR_TEXT_DIM, false);
         
         // 滑块轨道
@@ -397,8 +398,8 @@ public class StageSelectScreen extends Screen {
         int trackH = 4;
         g.fill(trackX, trackY, trackX + trackW, trackY + trackH, 0xFF303030);
         
-        // 滑块位置（范围 -5.0 ~ +5.0）
-        float normalizedValue = (cameraHeightOffset + 5.0f) / 10.0f;
+        // 滑块位置（范围 -2.0 ~ +2.0）
+        float normalizedValue = (cameraHeightOffset + 2.0f) / 4.0f;
         normalizedValue = Math.max(0, Math.min(1, normalizedValue));
         int thumbX = trackX + (int)(normalizedValue * (trackW - 6));
         g.fill(thumbX, trackY - 1, thumbX + 6, trackY + trackH + 1, COLOR_ACCENT);
@@ -499,7 +500,7 @@ public class StageSelectScreen extends Screen {
     private void updateHeightSliderFromMouse(double mouseX, int trackX, int trackW) {
         float normalized = (float)(mouseX - trackX) / trackW;
         normalized = Math.max(0, Math.min(1, normalized));
-        cameraHeightOffset = normalized * 10.0f - 5.0f; // 范围 -5.0 ~ +5.0
+        cameraHeightOffset = normalized * 4.0f - 2.0f; // 范围 -2.0 ~ +2.0
     }
     
     @Override
@@ -622,6 +623,13 @@ public class StageSelectScreen extends Screen {
         
         // 启动相机控制器（传递 modelHandle + modelName + 音频路径 + 高度偏移）
         MMDCameraController.getInstance().startStage(mergedAnim, cameraAnim, cinematicMode, modelHandle, modelName, audioPath, cameraHeightOffset);
+        
+        // 广播舞台开始到其他客户端（联机同步）
+        StringBuilder stageData = new StringBuilder(pack.getName());
+        for (StagePack.VmdFileInfo info : motionFiles) {
+            stageData.append("|").append(info.name);
+        }
+        StageNetworkHandler.sendStageStart(stageData.toString());
         
         // 标记已启动（onClose 不会退出舞台模式）
         this.stageStarted = true;

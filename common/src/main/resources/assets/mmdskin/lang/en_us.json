@@ -109,6 +109,8 @@
   "gui.mmdskin.mod_settings.physics_bust_clamp_inward.tooltip": "Prevent bust from caving inward, outward bounce unaffected",
   "gui.mmdskin.mod_settings.physics_debug_log": "Debug Log",
   "gui.mmdskin.mod_settings.physics_debug_log.tooltip": "Output physics system debug logs",
+  "gui.mmdskin.mod_settings.first_person_model": "First Person Model",
+  "gui.mmdskin.mod_settings.first_person_model.tooltip": "Show MMD model in first-person view (auto-hides head, camera height matches model head)",
   
   "gui.mmdskin.action_wheel": "Action Wheel",
   "gui.mmdskin.select_action": "Select Action",
@@ -123,5 +125,7 @@
   "gui.mmdskin.reset_morph": "Reset Expression",
   
   "gui.mmdskin.stage.cinematic": "Cinema",
-  "gui.mmdskin.stage.start": "Start"
+  "gui.mmdskin.stage.start": "Start",
+  "gui.mmdskin.stage.esc_hint": "Press ESC again to exit dance",
+  "gui.mmdskin.stage.mouse_released": "Mouse released — Right-click window to recapture"
 }

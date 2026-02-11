@@ -242,10 +242,6 @@ impl MMDRigidBody {
         result
     }
     
-    /// 重置刚体变换到初始状态
-    pub fn reset_transform(&mut self) {
-        // initial_transform 已在创建时保存
-    }
 }
 
 /// InvZ 变换：将 MMD 左手坐标系转换为右手坐标系
@@ -259,9 +255,13 @@ pub fn inv_z(m: Mat4) -> Mat4 {
 /// 将 glam Mat4 转换为 Rapier Isometry
 pub fn mat4_to_isometry(mat: Mat4) -> Pose {
     let (_, rotation, translation) = mat.to_scale_rotation_translation();
+    // 钳位 w 到 [-1, 1]，防止浮点误差导致 acos 返回 NaN
+    let w = rotation.w.clamp(-1.0, 1.0);
+    let sin_half = (1.0 - w * w).sqrt().max(1e-6);
+    let angle = w.acos() * 2.0;
     Isometry::new(
         vector![translation.x, translation.y, translation.z],
-        vector![rotation.x, rotation.y, rotation.z] * rotation.w.acos() * 2.0 / (1.0 - rotation.w * rotation.w).sqrt().max(1e-6)
+        vector![rotation.x, rotation.y, rotation.z] * angle / sin_half
     )
 }
 

@@ -154,15 +154,15 @@ static PHYSICS_CONFIG: Lazy<RwLock<PhysicsConfig>> = Lazy::new(|| {
 
 /// 获取当前配置（只读）
 pub fn get_config() -> PhysicsConfig {
-    PHYSICS_CONFIG.read().unwrap().clone()
+    PHYSICS_CONFIG.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// 手动设置配置（用于运行时调试）
 pub fn set_config(config: PhysicsConfig) {
-    *PHYSICS_CONFIG.write().unwrap() = config;
+    *PHYSICS_CONFIG.write().unwrap_or_else(|e| e.into_inner()) = config;
 }
 
 /// 重置为默认配置
 pub fn reset_config() {
-    *PHYSICS_CONFIG.write().unwrap() = PhysicsConfig::default();
+    *PHYSICS_CONFIG.write().unwrap_or_else(|e| e.into_inner()) = PhysicsConfig::default();
 }

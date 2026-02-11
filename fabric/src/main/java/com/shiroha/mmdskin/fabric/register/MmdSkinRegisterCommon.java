@@ -22,8 +22,8 @@ public class MmdSkinRegisterCommon {
             packetbuf.writeInt(opCode);
             packetbuf.writeUUID(playerUUID);
             
-            if (opCode == 1 || opCode == 3) {
-                // opCode 1: 动作执行, opCode 3: 模型选择同步 - 字符串参数
+            if (opCode == 1 || opCode == 3 || opCode == 6 || opCode == 7 || opCode == 8) {
+                // opCode 1: 动作执行, opCode 3: 模型选择同步, opCode 6: 表情同步, opCode 7/8: 舞台开始/结束 - 字符串参数
                 String data = buf.readUtf();
                 packetbuf.writeUtf(data);
             } else if (opCode == 4 || opCode == 5) {

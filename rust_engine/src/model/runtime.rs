@@ -4,21 +4,34 @@ use crate::animation::{VmdAnimation, AnimationLayerManager};
 use crate::morph::MorphManager;
 use crate::physics::MMDPhysics;
 use crate::skeleton::BoneManager;
-use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
+use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{MmdMaterial, RuntimeVertex, SubMesh, VertexWeight};
 
-/// 简单的伪随机数生成（0.0 - 1.0）
+/// 全局 PRNG 状态（xorshift32）
+static PRNG_STATE: AtomicU32 = AtomicU32::new(0);
+
+/// 简单的伪随机数生成（0.0 - 1.0），使用 xorshift32
 fn rand_float() -> f32 {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    ((nanos % 10000) as f32) / 10000.0
+    let mut s = PRNG_STATE.load(Ordering::Relaxed);
+    if s == 0 {
+        // 用纳秒时间戳初始化种子
+        s = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos()
+            | 1; // 确保不为 0
+    }
+    s ^= s << 13;
+    s ^= s >> 17;
+    s ^= s << 5;
+    PRNG_STATE.store(s, Ordering::Relaxed);
+    (s as f32) / (u32::MAX as f32)
 }
 
 /// MMD 运行时模型
@@ -124,6 +137,22 @@ pub struct MmdModel {
     // VPD 骨骼姿势覆盖（骨骼索引 -> (位移, 旋转)）
     vpd_bone_overrides: HashMap<usize, (Vec3, Quat)>,
     
+    // ======== 第一人称模式 ========
+    /// 第一人称模式是否启用
+    first_person_enabled: bool,
+    /// 头部骨骼索引缓存（模型加载后计算一次）
+    head_bone_index: Option<usize>,
+    /// 每个子网格是否属于头部（基于顶点位置自动检测）
+    head_submesh_flags: Vec<bool>,
+    /// 头部检测是否已初始化
+    head_detection_initialized: bool,
+    /// 用户设置的材质可见性备份（进入第一人称前保存，退出时恢复）
+    material_visible_backup: Vec<bool>,
+    /// 眼睛骨骼索引缓存（両目 > 目 > 左目/右目 > 头部 fallback）
+    eye_bone_index: Option<usize>,
+    /// 左/右目的索引（用于取中点）
+    eye_bone_pair: Option<(usize, usize)>,
+    
     // ======== 矩阵插值过渡 ========
     /// 缓存的蒙皮矩阵（过渡开始时的状态）
     transition_matrices: Vec<Mat4>,
@@ -198,6 +227,13 @@ impl MmdModel {
             transition_progress: 0.0,
             transition_duration: 0.0,
             is_transitioning: false,
+            first_person_enabled: false,
+            head_bone_index: None,
+            head_submesh_flags: Vec::new(),
+            head_detection_initialized: false,
+            material_visible_backup: Vec::new(),
+            eye_bone_index: None,
+            eye_bone_pair: None,
         }
     }
 
@@ -269,6 +305,260 @@ impl MmdModel {
     /// 获取所有材质名称列表
     pub fn get_material_names(&self) -> Vec<String> {
         self.materials.iter().map(|m| m.name.clone()).collect()
+    }
+    
+    // ========== 第一人称模式 ==========
+    
+    /// 初始化头部检测（模型加载后调用一次）
+    /// 基于顶点位置判断：颈部骨骼 Y 坐标以上的子网格标记为头部
+    pub fn init_head_detection(&mut self) {
+        if self.head_detection_initialized {
+            return;
+        }
+        self.head_detection_initialized = true;
+        
+        // 1. 查找头部骨骼（眼睛骨骼 fallback 用）
+        let head_names = ["頭", "head", "Head", "あたま"];
+        self.head_bone_index = None;
+        for name in &head_names {
+            if let Some(idx) = self.bone_manager.find_bone_by_name(name) {
+                self.head_bone_index = Some(idx);
+                break;
+            }
+        }
+        
+        // 2. 确定颈部分界线 Y 坐标（优先颈部骨骼，fallback 到头部骨骼）
+        let neck_names = ["首", "neck", "Neck"];
+        let mut neck_y: Option<f32> = None;
+        for name in &neck_names {
+            if let Some(idx) = self.bone_manager.find_bone_by_name(name) {
+                if let Some(bone) = self.bone_manager.get_bone(idx) {
+                    neck_y = Some(bone.initial_position.y);
+                    log::info!("第一人称分界线: 使用颈部骨骼 '{}' Y={:.2}", name, bone.initial_position.y);
+                }
+                break;
+            }
+        }
+        if neck_y.is_none() {
+            if let Some(idx) = self.head_bone_index {
+                if let Some(bone) = self.bone_manager.get_bone(idx) {
+                    neck_y = Some(bone.initial_position.y);
+                    log::info!("第一人称分界线: 颈部骨骼未找到，fallback 到头部骨骼 Y={:.2}", bone.initial_position.y);
+                }
+            }
+        }
+        
+        let cutoff_y = match neck_y {
+            Some(y) => y,
+            None => {
+                log::warn!("颈部/头部骨骼均未找到，第一人称头部隐藏不可用");
+                self.head_submesh_flags = vec![false; self.submeshes.len()];
+                return;
+            }
+        };
+        
+        // 3. 对每个子网格，按顶点位置判断是否在脖子以上
+        self.head_submesh_flags = Vec::with_capacity(self.submeshes.len());
+        
+        for submesh in &self.submeshes {
+            let begin = submesh.begin_index as usize;
+            let count = submesh.index_count as usize;
+            
+            if count == 0 {
+                self.head_submesh_flags.push(false);
+                continue;
+            }
+            
+            let mut above_count: usize = 0;
+            let mut total_count: usize = 0;
+            
+            for idx_offset in 0..count {
+                let index_pos = begin + idx_offset;
+                if index_pos >= self.indices.len() {
+                    break;
+                }
+                let vertex_idx = self.indices[index_pos] as usize;
+                if vertex_idx >= self.vertices.len() {
+                    continue;
+                }
+                
+                total_count += 1;
+                if self.vertices[vertex_idx].position.y >= cutoff_y {
+                    above_count += 1;
+                }
+            }
+            
+            let ratio = if total_count > 0 { above_count as f32 / total_count as f32 } else { 0.0 };
+            let is_head = ratio > 0.5;
+            self.head_submesh_flags.push(is_head);
+            
+            let mat_name = self.materials.get(submesh.material_id as usize)
+                .map(|m| m.name.as_str())
+                .unwrap_or("?");
+            if is_head {
+                log::info!("  [HEAD] submesh={}, material={}, 脖子以上顶点={:.1}%", 
+                    self.head_submesh_flags.len() - 1, mat_name, ratio * 100.0);
+            } else if ratio > 0.1 {
+                log::info!("  [BODY] submesh={}, material={}, 脖子以上顶点={:.1}%", 
+                    self.head_submesh_flags.len() - 1, mat_name, ratio * 100.0);
+            }
+        }
+        
+        // 4. 查找眼睛骨骼（用于第一人称相机位置）
+        //    优先级：両目 > 目 > 左目+右目中点 > 头部 fallback
+        let single_eye_names = ["両目", "目", "eye", "Eye", "Eyes", "eyes"];
+        self.eye_bone_index = None;
+        self.eye_bone_pair = None;
+        
+        for name in &single_eye_names {
+            if let Some(idx) = self.bone_manager.find_bone_by_name(name) {
+                self.eye_bone_index = Some(idx);
+                log::info!("眼睛骨骼检测: 使用 '{}' (索引={})", name, idx);
+                break;
+            }
+        }
+        
+        if self.eye_bone_index.is_none() {
+            // 尝试左目+右目
+            let left_names = ["左目", "eye_L", "Eye_L", "LeftEye"];
+            let right_names = ["右目", "eye_R", "Eye_R", "RightEye"];
+            let mut left_idx = None;
+            let mut right_idx = None;
+            for name in &left_names {
+                if let Some(idx) = self.bone_manager.find_bone_by_name(name) {
+                    left_idx = Some(idx);
+                    break;
+                }
+            }
+            for name in &right_names {
+                if let Some(idx) = self.bone_manager.find_bone_by_name(name) {
+                    right_idx = Some(idx);
+                    break;
+                }
+            }
+            if let (Some(l), Some(r)) = (left_idx, right_idx) {
+                self.eye_bone_pair = Some((l, r));
+                log::info!("眼睛骨骼检测: 使用左目({})+右目({})中点", l, r);
+            } else if let Some(l) = left_idx {
+                self.eye_bone_index = Some(l);
+                log::info!("眼睛骨骼检测: 仅找到左目({})", l);
+            } else if let Some(r) = right_idx {
+                self.eye_bone_index = Some(r);
+                log::info!("眼睛骨骼检测: 仅找到右目({})", r);
+            } else {
+                // fallback 到头部骨骼
+                self.eye_bone_index = self.head_bone_index;
+                log::info!("眼睛骨骼检测: 未找到眼睛骨骼，fallback 到头部骨骼");
+            }
+        }
+    }
+    
+    /// 设置第一人称模式
+    /// 启用时隐藏头部相关子网格的材质，禁用时恢复
+    pub fn set_first_person_mode(&mut self, enabled: bool) {
+        if self.first_person_enabled == enabled {
+            return;
+        }
+        
+        // 确保头部检测已初始化
+        if !self.head_detection_initialized {
+            self.init_head_detection();
+        }
+        
+        self.first_person_enabled = enabled;
+        
+        if enabled {
+            // 备份当前材质可见性
+            self.material_visible_backup = self.material_visible.clone();
+            
+            // 收集非头部子网格使用的材质 ID（共享材质不能隐藏）
+            let mut body_material_ids: std::collections::HashSet<usize> = std::collections::HashSet::new();
+            for (i, submesh) in self.submeshes.iter().enumerate() {
+                let is_head = i < self.head_submesh_flags.len() && self.head_submesh_flags[i];
+                if !is_head {
+                    body_material_ids.insert(submesh.material_id as usize);
+                }
+            }
+            
+            // 仅隐藏只被头部子网格使用的材质
+            let mut hidden_count = 0;
+            for (i, submesh) in self.submeshes.iter().enumerate() {
+                if i < self.head_submesh_flags.len() && self.head_submesh_flags[i] {
+                    let mat_id = submesh.material_id as usize;
+                    let mat_name = self.materials.get(mat_id)
+                        .map(|m| m.name.as_str()).unwrap_or("?");
+                    if mat_id < self.material_visible.len() && !body_material_ids.contains(&mat_id) {
+                        self.material_visible[mat_id] = false;
+                        hidden_count += 1;
+                        log::info!("  第一人称隐藏材质: [{}] {}", mat_id, mat_name);
+                    } else if body_material_ids.contains(&mat_id) {
+                        log::info!("  第一人称跳过共享材质: [{}] {} (身体也在使用)", mat_id, mat_name);
+                    }
+                }
+            }
+            log::info!("第一人称模式启用: 隐藏 {} 个材质, 头部子网格 {} 个", 
+                hidden_count, self.head_submesh_flags.iter().filter(|&&x| x).count());
+        } else {
+            // 恢复材质可见性
+            if !self.material_visible_backup.is_empty() {
+                self.material_visible = self.material_visible_backup.clone();
+                self.material_visible_backup.clear();
+            }
+        }
+    }
+    
+    /// 获取第一人称模式是否启用
+    pub fn is_first_person_enabled(&self) -> bool {
+        self.first_person_enabled
+    }
+    
+    /// 获取头部骨骼的初始 Y 坐标（静态休息姿势，用于相机高度）
+    /// 返回值为模型局部空间的 Y 坐标
+    pub fn get_head_bone_rest_position_y(&mut self) -> f32 {
+        // 确保头部检测已初始化
+        if !self.head_detection_initialized {
+            self.init_head_detection();
+        }
+        
+        match self.head_bone_index {
+            Some(idx) => {
+                if let Some(bone) = self.bone_manager.get_bone(idx) {
+                    bone.initial_position.y
+                } else {
+                    0.0
+                }
+            }
+            None => 0.0,
+        }
+    }
+    
+    /// 获取眼睛骨骼的当前动画位置（模型局部空间）
+    /// 每帧调用，返回经过动画/物理更新后的实时位置 [x, y, z]
+    /// 用于第一人称模式下的相机跟踪
+    pub fn get_eye_bone_animated_position(&mut self) -> Vec3 {
+        if !self.head_detection_initialized {
+            self.init_head_detection();
+        }
+        
+        // 优先使用左右眼中点
+        if let Some((left, right)) = self.eye_bone_pair {
+            let left_pos = self.bone_manager.get_bone(left)
+                .map(|b| b.position())
+                .unwrap_or(Vec3::ZERO);
+            let right_pos = self.bone_manager.get_bone(right)
+                .map(|b| b.position())
+                .unwrap_or(Vec3::ZERO);
+            return (left_pos + right_pos) * 0.5;
+        }
+        
+        // 单一眼睛骨骼
+        if let Some(idx) = self.eye_bone_index {
+            return self.bone_manager.get_bone(idx)
+                .map(|b| b.position())
+                .unwrap_or(Vec3::ZERO);
+        }
+        
+        Vec3::ZERO
     }
 
     /// 初始化动画状态
@@ -710,14 +1000,14 @@ impl MmdModel {
             0.0,
         );
         
-        // 应用到左眼（直接设置而不是累加，确保每帧都准确）
+        // 在动画旋转基础上叠加眼球追踪旋转
         if let Some(idx) = left_idx {
-            self.bone_manager.set_bone_rotation(idx, rotation);
+            self.bone_manager.add_bone_rotation(idx, rotation);
         }
         
         // 应用到右眼
         if let Some(idx) = right_idx {
-            self.bone_manager.set_bone_rotation(idx, rotation);
+            self.bone_manager.add_bone_rotation(idx, rotation);
         }
     }
     
@@ -870,6 +1160,164 @@ impl MmdModel {
     /// 获取索引数据指针
     pub fn get_indices_ptr(&self) -> *const u32 {
         self.indices.as_ptr()
+    }
+    
+    // ========== 批量子网格元数据（G3 优化）==========
+    
+    /// 批量获取所有子网格的渲染元数据，避免 Java 侧逐子网格 JNI 调用
+    ///
+    /// 输出布局（每子网格 20 字节）：
+    /// - offset  0: i32 materialID
+    /// - offset  4: i32 beginIndex
+    /// - offset  8: i32 vertexCount
+    /// - offset 12: f32 alpha（基础材质 alpha，Java 侧再叠加 morph）
+    /// - offset 16: u8  isVisible (0/1)
+    /// - offset 17: u8  bothFace  (0/1)
+    /// - offset 18: u16 padding
+    ///
+    /// 返回写入的子网格数量
+    pub fn batch_get_sub_mesh_data(&self, output: &mut [u8]) -> usize {
+        const STRIDE: usize = 20;
+        let count = self.submeshes.len();
+        if output.len() < count * STRIDE {
+            return 0;
+        }
+        
+        for (i, submesh) in self.submeshes.iter().enumerate() {
+            let mat_id = submesh.material_id as i32;
+            let begin = submesh.begin_index as i32;
+            let vert_count = submesh.index_count as i32;
+            let alpha = self.materials.get(submesh.material_id as usize)
+                .map(|m| m.diffuse.w)
+                .unwrap_or(1.0f32);
+            let visible: u8 = if self.is_material_visible(submesh.material_id as usize) { 1 } else { 0 };
+            let both_face: u8 = self.materials.get(submesh.material_id as usize)
+                .map(|m| if m.is_double_sided() { 1u8 } else { 0u8 })
+                .unwrap_or(0u8);
+            
+            unsafe {
+                let p = output.as_mut_ptr().add(i * STRIDE);
+                (p as *mut i32).write_unaligned(mat_id);
+                (p.add(4) as *mut i32).write_unaligned(begin);
+                (p.add(8) as *mut i32).write_unaligned(vert_count);
+                (p.add(12) as *mut f32).write_unaligned(alpha);
+                *p.add(16) = visible;
+                *p.add(17) = both_face;
+                // padding bytes 18-19 left as-is
+            }
+        }
+        
+        count
+    }
+    
+    // ========== NativeRender MC 顶点构建（P2-9 优化）==========
+    
+    /// 构建 MC NEW_ENTITY 格式的交错顶点数据（含矩阵变换）
+    ///
+    /// 将蒙皮后的 SoA 数据（分离的 pos/nor/uv 数组）按索引展开，
+    /// 应用 pose/normal 矩阵变换后，直接写入 MC 交错格式。
+    ///
+    /// 顶点布局（每顶点 36 字节）：
+    /// - Position: 3 × f32 (12 bytes, offset 0)
+    /// - Color:    4 × u8  (4 bytes,  offset 12)
+    /// - UV0:      2 × f32 (8 bytes,  offset 16)
+    /// - Overlay:  1 × u32 (4 bytes,  offset 24) — 打包的 2×i16
+    /// - UV2:      1 × u32 (4 bytes,  offset 28) — 打包的 2×i16
+    /// - Normal:   3 × i8 + 1 pad (4 bytes, offset 32)
+    pub fn build_mc_vertex_buffer(
+        &self,
+        sub_mesh_index: usize,
+        output: &mut [u8],
+        pose_matrix: &Mat4,
+        normal_matrix: &Mat3,
+        color_rgba: u32,
+        overlay_uv: u32,
+        packed_light: u32,
+    ) -> usize {
+        if sub_mesh_index >= self.submeshes.len() {
+            return 0;
+        }
+        
+        let submesh = &self.submeshes[sub_mesh_index];
+        let begin = submesh.begin_index as usize;
+        let count = submesh.index_count as usize;
+        let vertex_count = self.update_positions_raw.len() / 3;
+        
+        const STRIDE: usize = 36;
+        if output.len() < count * STRIDE {
+            log::warn!(
+                "BuildMCVertexBuffer: 输出缓冲区不足 (需要 {} 字节, 实际 {} 字节)",
+                count * STRIDE, output.len()
+            );
+            return 0;
+        }
+        
+        let positions = &self.update_positions_raw;
+        let normals = &self.update_normals_raw;
+        let uvs = &self.update_uvs_raw;
+        let indices = &self.indices;
+        
+        let mut written: usize = 0;
+        for i in 0..count {
+            let global_idx = begin + i;
+            if global_idx >= indices.len() {
+                break;
+            }
+            let idx = indices[global_idx] as usize;
+            if idx >= vertex_count {
+                // 索引越界：写入零顶点（避免输出缓冲区空洞）
+                unsafe {
+                    let p = output.as_mut_ptr().add(written * STRIDE);
+                    std::ptr::write_bytes(p, 0, STRIDE);
+                }
+                written += 1;
+                continue;
+            }
+            
+            let out_offset = written * STRIDE;
+            
+            // 读取蒙皮后的位置并应用 pose 矩阵变换
+            let px = positions[idx * 3];
+            let py = positions[idx * 3 + 1];
+            let pz = positions[idx * 3 + 2];
+            let pos = pose_matrix.transform_point3(Vec3::new(px, py, pz));
+            
+            // 读取蒙皮后的法线并应用 normal 矩阵变换
+            let nx = normals[idx * 3];
+            let ny = normals[idx * 3 + 1];
+            let nz = normals[idx * 3 + 2];
+            let nor = (*normal_matrix * Vec3::new(nx, ny, nz)).normalize_or_zero();
+            
+            // 读取 UV
+            let u = uvs[idx * 2];
+            let v = uvs[idx * 2 + 1];
+            
+            // 写入交错顶点数据（使用 unsafe 指针写入，避免逐字节 copy_from_slice 开销）
+            unsafe {
+                let p = output.as_mut_ptr().add(out_offset);
+                // Position: 3 × f32 (offset 0)
+                (p as *mut f32).write_unaligned(pos.x);
+                (p.add(4) as *mut f32).write_unaligned(pos.y);
+                (p.add(8) as *mut f32).write_unaligned(pos.z);
+                // Color: 4 × u8 (offset 12)
+                (p.add(12) as *mut u32).write_unaligned(color_rgba);
+                // UV0: 2 × f32 (offset 16)
+                (p.add(16) as *mut f32).write_unaligned(u);
+                (p.add(20) as *mut f32).write_unaligned(v);
+                // Overlay: u32 (offset 24)
+                (p.add(24) as *mut u32).write_unaligned(overlay_uv);
+                // UV2/Lightmap: u32 (offset 28)
+                (p.add(28) as *mut u32).write_unaligned(packed_light);
+                // Normal: 3 × i8 + 1 pad (offset 32)
+                *p.add(32) = (nor.x.clamp(-1.0, 1.0) * 127.0) as i8 as u8;
+                *p.add(33) = (nor.y.clamp(-1.0, 1.0) * 127.0) as i8 as u8;
+                *p.add(34) = (nor.z.clamp(-1.0, 1.0) * 127.0) as i8 as u8;
+                *p.add(35) = 0; // padding
+            }
+            written += 1;
+        }
+        
+        written
     }
     
     // ========== GPU 蒙皮相关方法 ==========
@@ -1221,25 +1669,38 @@ impl MmdModel {
         self.morph_manager.get_material_morph_results().len()
     }
     
-    /// 获取材质 Morph 结果展平数据（每材质 28 个 float）
-    /// 布局：diffuse(4) + specular(3) + specular_strength(1) +
-    /// ambient(3) + edge_color(4) + edge_size(1) + texture_tint(4) +
-    /// environment_tint(4) + toon_tint(4) = 28 floats
+    /// 获取材质 Morph 结果展平数据（每材质 56 个 float）
+    /// 布局：mul[diffuse(4) + specular(3) + specular_strength(1) +
+    ///        ambient(3) + edge_color(4) + edge_size(1) + texture_tint(4) +
+    ///        environment_tint(4) + toon_tint(4)] = 28 floats
+    ///     + add[同上布局] = 28 floats
+    /// 渲染时：final = base * mul + add
     pub fn get_material_morph_results_flat(&mut self) -> &[f32] {
         let results = self.morph_manager.get_material_morph_results();
-        let expected_len = results.len() * 28;
+        let expected_len = results.len() * 56;
         self.material_morph_results_flat_cache.clear();
         self.material_morph_results_flat_cache.reserve(expected_len);
         for r in results {
-            self.material_morph_results_flat_cache.extend_from_slice(&[r.diffuse.x, r.diffuse.y, r.diffuse.z, r.diffuse.w]);
-            self.material_morph_results_flat_cache.extend_from_slice(&[r.specular.x, r.specular.y, r.specular.z]);
-            self.material_morph_results_flat_cache.push(r.specular_strength);
-            self.material_morph_results_flat_cache.extend_from_slice(&[r.ambient.x, r.ambient.y, r.ambient.z]);
-            self.material_morph_results_flat_cache.extend_from_slice(&[r.edge_color.x, r.edge_color.y, r.edge_color.z, r.edge_color.w]);
-            self.material_morph_results_flat_cache.push(r.edge_size);
-            self.material_morph_results_flat_cache.extend_from_slice(&[r.texture_tint.x, r.texture_tint.y, r.texture_tint.z, r.texture_tint.w]);
-            self.material_morph_results_flat_cache.extend_from_slice(&[r.environment_tint.x, r.environment_tint.y, r.environment_tint.z, r.environment_tint.w]);
-            self.material_morph_results_flat_cache.extend_from_slice(&[r.toon_tint.x, r.toon_tint.y, r.toon_tint.z, r.toon_tint.w]);
+            // 乘算部分 (28 floats)
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.mul.diffuse.x, r.mul.diffuse.y, r.mul.diffuse.z, r.mul.diffuse.w]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.mul.specular.x, r.mul.specular.y, r.mul.specular.z]);
+            self.material_morph_results_flat_cache.push(r.mul.specular_strength);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.mul.ambient.x, r.mul.ambient.y, r.mul.ambient.z]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.mul.edge_color.x, r.mul.edge_color.y, r.mul.edge_color.z, r.mul.edge_color.w]);
+            self.material_morph_results_flat_cache.push(r.mul.edge_size);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.mul.texture_tint.x, r.mul.texture_tint.y, r.mul.texture_tint.z, r.mul.texture_tint.w]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.mul.environment_tint.x, r.mul.environment_tint.y, r.mul.environment_tint.z, r.mul.environment_tint.w]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.mul.toon_tint.x, r.mul.toon_tint.y, r.mul.toon_tint.z, r.mul.toon_tint.w]);
+            // 加算部分 (28 floats)
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.add.diffuse.x, r.add.diffuse.y, r.add.diffuse.z, r.add.diffuse.w]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.add.specular.x, r.add.specular.y, r.add.specular.z]);
+            self.material_morph_results_flat_cache.push(r.add.specular_strength);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.add.ambient.x, r.add.ambient.y, r.add.ambient.z]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.add.edge_color.x, r.add.edge_color.y, r.add.edge_color.z, r.add.edge_color.w]);
+            self.material_morph_results_flat_cache.push(r.add.edge_size);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.add.texture_tint.x, r.add.texture_tint.y, r.add.texture_tint.z, r.add.texture_tint.w]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.add.environment_tint.x, r.add.environment_tint.y, r.add.environment_tint.z, r.add.environment_tint.w]);
+            self.material_morph_results_flat_cache.extend_from_slice(&[r.add.toon_tint.x, r.add.toon_tint.y, r.add.toon_tint.z, r.add.toon_tint.w]);
         }
         &self.material_morph_results_flat_cache
     }
@@ -1446,9 +1907,10 @@ impl MmdModel {
                     RigidBodyType::Dynamic => "Dynamic",
                     RigidBodyType::DynamicWithBonePosition => "DynamicWithBonePosition",
                 };
+                let escaped_name = rb.name.replace('\\', "\\\\").replace('"', "\\\"");
                 info.push_str(&format!(
                     "    {{\"index\": {}, \"name\": \"{}\", \"type\": \"{}\", \"bone\": {}, \"mass\": {:.3}}}",
-                    i, rb.name, type_str, rb.bone_index, rb.mass
+                    i, escaped_name, type_str, rb.bone_index, rb.mass
                 ));
                 if i < physics.mmd_rigid_bodies.len() - 1 {
                     info.push_str(",\n");
@@ -1461,9 +1923,10 @@ impl MmdModel {
             // 关节信息
             info.push_str("  \"joints\": [\n");
             for (i, joint) in physics.mmd_joints.iter().enumerate() {
+                let escaped_jname = joint.name.replace('\\', "\\\\").replace('"', "\\\"");
                 info.push_str(&format!(
                     "    {{\"index\": {}, \"name\": \"{}\", \"rb_a\": {}, \"rb_b\": {}, ",
-                    i, joint.name, joint.rigid_body_a_index, joint.rigid_body_b_index
+                    i, escaped_jname, joint.rigid_body_a_index, joint.rigid_body_b_index
                 ));
                 info.push_str(&format!(
                     "\"lin_lower\": [{:.3},{:.3},{:.3}], \"lin_upper\": [{:.3},{:.3},{:.3}], ",
@@ -1529,7 +1992,7 @@ fn compute_vertex_skinning(
                 .copied()
                 .unwrap_or(Mat4::IDENTITY);
             let pos = m.transform_point3(position);
-            let norm = m.transform_vector3(normal).normalize();
+            let norm = m.transform_vector3(normal).normalize_or_zero();
             (pos, norm)
         }
         VertexWeight::Bdef2 { bones, weight } => {
@@ -1546,7 +2009,7 @@ fn compute_vertex_skinning(
 
             let pos = m0.transform_point3(position) * w0 + m1.transform_point3(position) * w1;
             let norm =
-                (m0.transform_vector3(normal) * w0 + m1.transform_vector3(normal) * w1).normalize();
+                (m0.transform_vector3(normal) * w0 + m1.transform_vector3(normal) * w1).normalize_or_zero();
             (pos, norm)
         }
         VertexWeight::Bdef4 { bones, weights } => {
@@ -1563,7 +2026,7 @@ fn compute_vertex_skinning(
                 norm += m.transform_vector3(normal) * w;
             }
 
-            (pos, norm.normalize())
+            (pos, norm.normalize_or_zero())
         }
         VertexWeight::Sdef {
             bones,
@@ -1587,7 +2050,7 @@ fn compute_vertex_skinning(
             // 简化实现：退化为 BDEF2
             let pos = m0.transform_point3(position) * w0 + m1.transform_point3(position) * w1;
             let norm =
-                (m0.transform_vector3(normal) * w0 + m1.transform_vector3(normal) * w1).normalize();
+                (m0.transform_vector3(normal) * w0 + m1.transform_vector3(normal) * w1).normalize_or_zero();
             (pos, norm)
         }
         VertexWeight::Qdef { bones, weights } => {
@@ -1605,7 +2068,7 @@ fn compute_vertex_skinning(
                 norm += m.transform_vector3(normal) * w;
             }
 
-            (pos, norm.normalize())
+            (pos, norm.normalize_or_zero())
         }
     }
 }

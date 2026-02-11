@@ -252,6 +252,15 @@ public class ConfigManager {
         return provider != null ? provider.isPhysicsDebugLog() : false;
     }
     
+    // ==================== 第一人称模型配置 ====================
+    
+    /**
+     * 获取第一人称模型显示启用状态
+     */
+    public static boolean isFirstPersonModelEnabled() {
+        return provider != null ? provider.isFirstPersonModelEnabled() : false;
+    }
+    
     /**
      * 配置提供者接口
      * 各平台实现此接口以提供配置值
@@ -384,5 +393,8 @@ public class ConfigManager {
         
         /** 是否输出调试日志（默认 false） */
         default boolean isPhysicsDebugLog() { return false; }
+        
+        /** 第一人称模型显示是否启用（默认 false） */
+        default boolean isFirstPersonModelEnabled() { return false; }
     }
 }

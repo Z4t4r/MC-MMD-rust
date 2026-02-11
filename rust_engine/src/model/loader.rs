@@ -268,7 +268,7 @@ fn convert_pmx_morph(pmx_morph: &mmd::pmx::morph::Morph<DefaultConfig>) -> crate
                 BoneMorphOffset {
                     bone_index: o.bone as u32,
                     translation: Vec3::new(o.translation[0], o.translation[1], -o.translation[2]),
-                    rotation: Vec4::new(o.rotation[0], o.rotation[1], -o.rotation[2], o.rotation[3]),
+                    rotation: Vec4::new(o.rotation[0], o.rotation[1], -o.rotation[2], -o.rotation[3]),
                 }
             }).collect();
             m

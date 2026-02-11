@@ -82,30 +82,6 @@ jar {
 	}
 }
 
-repositories {
-    mavenCentral()
-    maven {
-        url "https://maven.shedaniel.me/"
-        name "Shedaniel Maven"
-    }
-    maven {
-        url "https://maven.minecraftforge.net/"
-        name "Forge"
-    }
-    maven {
-        url "https://maven.architectury.dev/"
-        name "Architectury"
-    }
-    maven {
-        url "https://cursemaven.com"
-        name "CurseMaven"
-    }
-    maven {
-        url "https://api.modrinth.com/maven"
-        name "Modrinth"
-    }
-}
-
 tasks.named('processResources', ProcessResources).configure {
     def replaceProperties = [
         minecraft_version: '1.20.1',

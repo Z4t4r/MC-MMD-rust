@@ -73,6 +73,12 @@ public class RenderContext {
             .mirror(true)
             .build();
     
+    /** 第一人称世界渲染上下文 */
+    public static final RenderContext FIRST_PERSON = new Builder()
+            .sceneType(SceneType.WORLD)
+            .firstPerson(true)
+            .build();
+    
     /** 物品渲染上下文 */
     public static final RenderContext ITEM = new Builder()
             .sceneType(SceneType.ITEM)

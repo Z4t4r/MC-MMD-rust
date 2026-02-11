@@ -6,8 +6,11 @@ import com.shiroha.mmdskin.forge.network.MmdSkinNetworkPack;
 import com.shiroha.mmdskin.maid.MaidActionNetworkHandler;
 import com.shiroha.mmdskin.maid.MaidModelNetworkHandler;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRenderFactory;
+import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
 import com.shiroha.mmdskin.ui.network.ActionWheelNetworkHandler;
+import com.shiroha.mmdskin.ui.network.MorphWheelNetworkHandler;
 import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
+import com.shiroha.mmdskin.ui.network.StageNetworkHandler;
 import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
 import com.shiroha.mmdskin.ui.wheel.ConfigWheelScreen;
 import com.shiroha.mmdskin.ui.wheel.MaidConfigWheelScreen;
@@ -110,6 +113,15 @@ public class MmdSkinRegisterClient {
             }
         });
         
+        // 注册表情轮盘网络发送器
+        MorphWheelNetworkHandler.setNetworkSender(morphName -> {
+            LocalPlayer player = MCinstance.player;
+            if (player != null) {
+                MmdSkinRegisterCommon.channel.sendToServer(
+                    new MmdSkinNetworkPack(6, player.getUUID(), morphName));
+            }
+        });
+        
         // 注册模型选择网络发送器（旧接口，保留向后兼容）
         com.shiroha.mmdskin.ui.network.ModelSelectorNetworkHandler.setNetworkSender(modelName -> {
             LocalPlayer player = MCinstance.player;
@@ -143,6 +155,22 @@ public class MmdSkinRegisterClient {
                 logger.info("发送女仆动作到服务器: 实体={}, 动画={}", entityId, animId);
                 MmdSkinRegisterCommon.channel.sendToServer(
                     new MmdSkinNetworkPack(5, player.getUUID(), entityId, animId));
+            }
+        });
+        
+        // 注册舞台模式网络发送器
+        StageNetworkHandler.setStageStartSender(stageData -> {
+            LocalPlayer player = MCinstance.player;
+            if (player != null) {
+                MmdSkinRegisterCommon.channel.sendToServer(
+                    new MmdSkinNetworkPack(7, player.getUUID(), stageData));
+            }
+        });
+        StageNetworkHandler.setStageEndSender(() -> {
+            LocalPlayer player = MCinstance.player;
+            if (player != null) {
+                MmdSkinRegisterCommon.channel.sendToServer(
+                    new MmdSkinNetworkPack(8, player.getUUID(), ""));
             }
         });
     }
@@ -272,6 +300,7 @@ public class MmdSkinRegisterClient {
         public static void onPlayerLoggedOut(ClientPlayerNetworkEvent.LoggingOut event) {
             MMDCameraController.getInstance().exitStageMode();
             PlayerModelSyncManager.onDisconnect();
+            MmdSkinRendererPlayerHelper.onDisconnect();
         }
     }
 }

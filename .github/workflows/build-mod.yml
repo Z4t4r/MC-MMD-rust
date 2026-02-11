@@ -242,7 +242,7 @@ jobs:
           name: native-android-arm64
           path: rust_engine/target/aarch64-linux-android/release/libmmd_engine.so
 
-  # ==================== Java 模组构建 ====================
+  # ==================== Java 模组构建（轻量版：仅包含常用平台） ====================
   build-java:
     needs: [build-rust-windows-x64, build-rust-linux-x64, build-rust-android-arm64]
     runs-on: ubuntu-latest
@@ -254,6 +254,7 @@ jobs:
       - name: Download native libraries
         uses: actions/download-artifact@v4
         with:
+          pattern: native-*
           path: native-libs
 
       - name: Copy natives to resources
@@ -300,9 +301,89 @@ jobs:
             !forge/build/libs/*-sources*.jar
           if-no-files-found: error
 
+  # ==================== Java 模组构建（通用版：包含所有平台） ====================
+  build-java-universal:
+    needs: [build-rust-windows-x64, build-rust-windows-arm64, build-rust-linux-x64, build-rust-linux-arm64, build-rust-linux-loongarch64, build-rust-linux-riscv64, build-rust-macos-x64, build-rust-macos-arm64, build-rust-android-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download all native libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: native-libs
+
+      - name: Copy ALL natives to resources
+        run: |
+          mkdir -p common/src/main/resources/natives/windows-x64
+          mkdir -p common/src/main/resources/natives/windows-arm64
+          mkdir -p common/src/main/resources/natives/linux-x64
+          mkdir -p common/src/main/resources/natives/linux-arm64
+          mkdir -p common/src/main/resources/natives/linux-loongarch64
+          mkdir -p common/src/main/resources/natives/linux-riscv64
+          mkdir -p common/src/main/resources/natives/macos-x64
+          mkdir -p common/src/main/resources/natives/macos-arm64
+          mkdir -p common/src/main/resources/natives/android-arm64
+          cp native-libs/native-windows-x64/mmd_engine.dll common/src/main/resources/natives/windows-x64/
+          cp native-libs/native-windows-arm64/mmd_engine.dll common/src/main/resources/natives/windows-arm64/
+          cp native-libs/native-linux-x64/libmmd_engine.so common/src/main/resources/natives/linux-x64/
+          cp native-libs/native-linux-arm64/libmmd_engine.so common/src/main/resources/natives/linux-arm64/
+          cp native-libs/native-linux-loongarch64/libmmd_engine.so common/src/main/resources/natives/linux-loongarch64/
+          cp native-libs/native-linux-riscv64/libmmd_engine.so common/src/main/resources/natives/linux-riscv64/
+          cp native-libs/native-macos-x64/libmmd_engine.dylib common/src/main/resources/natives/macos-x64/
+          cp native-libs/native-macos-arm64/libmmd_engine.dylib common/src/main/resources/natives/macos-arm64/
+          cp native-libs/native-android-arm64/libmmd_engine.so common/src/main/resources/natives/android-arm64/
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew build --no-daemon -x test
+
+      - name: Rename JARs to universal
+        run: |
+          cd fabric/build/libs
+          for f in mmdskin-fabric-*.jar; do
+            case "$f" in *-dev*|*-sources*) continue;; esac
+            mv "$f" "${f%.jar}-universal.jar"
+          done
+          cd ../../../forge/build/libs
+          for f in mmdskin-forge-*.jar; do
+            case "$f" in *-dev*|*-sources*) continue;; esac
+            mv "$f" "${f%.jar}-universal.jar"
+          done
+
+      - name: Upload Universal Fabric Mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmdskin-fabric-universal
+          path: |
+            fabric/build/libs/*-universal.jar
+          if-no-files-found: error
+
+      - name: Upload Universal Forge Mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmdskin-forge-universal
+          path: |
+            forge/build/libs/*-universal.jar
+          if-no-files-found: error
+
   # ==================== 统一发布 ====================
   release:
-    needs: [build-rust-windows-x64, build-rust-windows-arm64, build-rust-linux-x64, build-rust-linux-arm64, build-rust-macos-x64, build-rust-macos-arm64, build-rust-android-arm64, build-rust-linux-loongarch64, build-rust-linux-riscv64, build-java]
+    needs: [build-rust-windows-x64, build-rust-windows-arm64, build-rust-linux-x64, build-rust-linux-arm64, build-rust-macos-x64, build-rust-macos-arm64, build-rust-android-arm64, build-rust-linux-loongarch64, build-rust-linux-riscv64, build-java, build-java-universal]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -315,15 +396,15 @@ jobs:
 
       - name: Rename artifacts for clarity
         run: |
-          mv artifacts/native-windows-x64/mmd_engine.dll artifacts/native-windows-x64/mmd_engine-windows-x64.dll
-          mv artifacts/native-windows-arm64/mmd_engine.dll artifacts/native-windows-arm64/mmd_engine-windows-arm64.dll
-          mv artifacts/native-linux-x64/libmmd_engine.so artifacts/native-linux-x64/libmmd_engine-linux-x64.so
-          mv artifacts/native-linux-arm64/libmmd_engine.so artifacts/native-linux-arm64/libmmd_engine-linux-arm64.so
-          mv artifacts/native-linux-loongarch64/libmmd_engine.so artifacts/native-linux-loongarch64/libmmd_engine-linux-loongarch64.so
-          mv artifacts/native-linux-riscv64/libmmd_engine.so artifacts/native-linux-riscv64/libmmd_engine-linux-riscv64.so
-          mv artifacts/native-macos-x64/libmmd_engine.dylib artifacts/native-macos-x64/libmmd_engine-macos-x64.dylib
-          mv artifacts/native-macos-arm64/libmmd_engine.dylib artifacts/native-macos-arm64/libmmd_engine-macos-arm64.dylib
-          mv artifacts/native-android-arm64/libmmd_engine.so artifacts/native-android-arm64/libmmd_engine-android-arm64.so
+          mv artifacts/native-windows-x64/mmd_engine.dll "artifacts/native-windows-x64/mmd_engine-windows-x64_${GITHUB_REF_NAME}.dll"
+          mv artifacts/native-windows-arm64/mmd_engine.dll "artifacts/native-windows-arm64/mmd_engine-windows-arm64_${GITHUB_REF_NAME}.dll"
+          mv artifacts/native-linux-x64/libmmd_engine.so "artifacts/native-linux-x64/libmmd_engine-linux-x64_${GITHUB_REF_NAME}.so"
+          mv artifacts/native-linux-arm64/libmmd_engine.so "artifacts/native-linux-arm64/libmmd_engine-linux-arm64_${GITHUB_REF_NAME}.so"
+          mv artifacts/native-linux-loongarch64/libmmd_engine.so "artifacts/native-linux-loongarch64/libmmd_engine-linux-loongarch64_${GITHUB_REF_NAME}.so"
+          mv artifacts/native-linux-riscv64/libmmd_engine.so "artifacts/native-linux-riscv64/libmmd_engine-linux-riscv64_${GITHUB_REF_NAME}.so"
+          mv artifacts/native-macos-x64/libmmd_engine.dylib "artifacts/native-macos-x64/libmmd_engine-macos-x64_${GITHUB_REF_NAME}.dylib"
+          mv artifacts/native-macos-arm64/libmmd_engine.dylib "artifacts/native-macos-arm64/libmmd_engine-macos-arm64_${GITHUB_REF_NAME}.dylib"
+          mv artifacts/native-android-arm64/libmmd_engine.so "artifacts/native-android-arm64/libmmd_engine-android-arm64_${GITHUB_REF_NAME}.so"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -331,6 +412,8 @@ jobs:
           files: |
             artifacts/mmdskin-fabric/*.jar
             artifacts/mmdskin-forge/*.jar
+            artifacts/mmdskin-fabric-universal/*.jar
+            artifacts/mmdskin-forge-universal/*.jar
             artifacts/native-windows-x64/*.dll
             artifacts/native-windows-arm64/*.dll
             artifacts/native-linux-x64/*.so

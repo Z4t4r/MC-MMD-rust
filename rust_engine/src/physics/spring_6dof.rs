@@ -143,7 +143,7 @@ impl Spring6DofConstraint {
     pub fn apply_spring_forces(
         &self,
         rigid_body_set: &mut RigidBodySet,
-        _dt: f32,
+        dt: f32,
         _solver_iterations: usize,
         stiffness_scale: f32,
     ) {
@@ -151,8 +151,8 @@ impl Spring6DofConstraint {
             return;
         }
 
-        // 获取两个刚体的世界变换（不可变借用）
-        let (trans_a, trans_b) = {
+        // 获取两个刚体的世界变换和速度（不可变借用）
+        let (trans_a, trans_b, linvel_a, linvel_b, angvel_a, angvel_b) = {
             let rb_a = match rigid_body_set.get(self.body_a) {
                 Some(rb) => rb,
                 None => return,
@@ -161,7 +161,11 @@ impl Spring6DofConstraint {
                 Some(rb) => rb,
                 None => return,
             };
-            (*rb_a.position(), *rb_b.position())
+            (
+                *rb_a.position(), *rb_b.position(),
+                *rb_a.linvel(), *rb_b.linvel(),
+                *rb_a.angvel(), *rb_b.angvel(),
+            )
         };
 
         // === calculateTransforms ===
@@ -215,6 +219,16 @@ impl Spring6DofConstraint {
                 // 所以这里 force 的正方向与约束轴一致
                 // 反向作用力施加到 A
                 force_on_b += axis * force_mag;
+                
+                // 速度阻尼：沿约束轴的相对线速度分量
+                // damping 值越接近 0 阻尼越强，1.0 = 无阻尼（与 Bullet3 一致）
+                let damping_factor = 1.0 - self.spring_damping[i].clamp(0.0, 1.0);
+                if damping_factor > 1e-6 && dt > 1e-6 {
+                    let rel_vel = linvel_b - linvel_a;
+                    let vel_along_axis = rel_vel.dot(&axis);
+                    let damping_force = -damping_factor * stiffness.abs().sqrt() * vel_along_axis;
+                    force_on_b += axis * damping_force;
+                }
             }
         }
 
@@ -234,6 +248,15 @@ impl Spring6DofConstraint {
 
                 // 力矩方向：沿约束轴
                 torque_on_b += calc_axis[i] * torque_mag;
+                
+                // 角速度阻尼
+                let damping_factor = 1.0 - self.spring_damping[i + 3].clamp(0.0, 1.0);
+                if damping_factor > 1e-6 && dt > 1e-6 {
+                    let rel_angvel = angvel_b - angvel_a;
+                    let angvel_along_axis = rel_angvel.dot(&calc_axis[i]);
+                    let damping_torque = -damping_factor * stiffness.abs().sqrt() * angvel_along_axis;
+                    torque_on_b += calc_axis[i] * damping_torque;
+                }
             }
         }
 

@@ -1,7 +1,10 @@
 package com.shiroha.mmdskin.mixin.forge;
 
 import com.shiroha.mmdskin.MmdSkinClient;
+import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.renderer.animation.AnimationStateManager;
+import com.shiroha.mmdskin.config.ModelConfigManager;
+import com.shiroha.mmdskin.renderer.core.FirstPersonManager;
 import com.shiroha.mmdskin.renderer.render.ItemRenderHelper;
 import com.shiroha.mmdskin.renderer.render.InventoryRenderHelper;
 import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
@@ -80,6 +83,11 @@ public abstract class ForgePlayerRendererMixin extends LivingEntityRenderer<Abst
         // 获取模型尺寸
         float[] size = getModelSize(modelWithData);
         
+        // 第一人称模式管理（阶段一：管理头部隐藏状态，在 render 之前）
+        float combinedScale = size[0] * ModelConfigManager.getConfig(selectedModel).modelScale;
+        FirstPersonManager.preRender(NativeFunc.GetInst(), model.GetModelLong(), combinedScale, isLocalPlayer);
+        boolean isFirstPerson = isLocalPlayer && FirstPersonManager.isActive();
+        
         // 更新动画状态（委托给 AnimationStateManager）
         AnimationStateManager.updateAnimationState(player, modelWithData);
         
@@ -94,7 +102,13 @@ public abstract class ForgePlayerRendererMixin extends LivingEntityRenderer<Abst
             // 正常世界渲染
             matrixStack.scale(size[0], size[0], size[0]);
             RenderSystem.setShader(GameRenderer::getRendertypeEntityTranslucentShader);
-            model.render(player, params.bodyYaw, params.bodyPitch, params.translation, tickDelta, matrixStack, packedLight, RenderContext.WORLD);
+            RenderContext ctx = isFirstPerson ? RenderContext.FIRST_PERSON : RenderContext.WORLD;
+            model.render(player, params.bodyYaw, params.bodyPitch, params.translation, tickDelta, matrixStack, packedLight, ctx);
+        }
+        
+        // 第一人称模式（阶段二：render 之后获取当前帧的眼睛骨骼位置）
+        if (isFirstPerson) {
+            FirstPersonManager.postRender(NativeFunc.GetInst(), model.GetModelLong());
         }
         
         // 渲染手持物品（委托给 ItemRenderHelper）

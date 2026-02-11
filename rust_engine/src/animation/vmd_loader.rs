@@ -378,6 +378,7 @@ impl VmdAnimation {
 
     /// 获取相机帧变换
     pub fn get_camera_transform(&self, frame: f32) -> CameraFrameTransform {
+        let frame = frame.max(0.0);
         let frame_index = frame.floor() as u32;
         let amount = frame.fract();
         self.motion.find_camera_transform(frame_index, amount)
@@ -444,6 +445,7 @@ impl VmdAnimation {
         bone_manager: &mut BoneManager,
         morph_manager: &mut MorphManager,
     ) {
+        let frame = frame.max(0.0);
         let frame_index = frame.floor() as u32;
         let amount = frame.fract();
 

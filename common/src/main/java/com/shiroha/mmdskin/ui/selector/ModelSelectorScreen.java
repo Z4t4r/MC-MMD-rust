@@ -132,8 +132,12 @@ public class ModelSelectorScreen extends Screen {
         // 通知服务器模型变更
         ModelSelectorNetworkHandler.sendModelChangeToServer(card.displayName);
         
-        // 强制重载所有模型（立即释放旧模型，确保 CPU/GPU 模式都生效）
-        com.shiroha.mmdskin.renderer.model.MMDModelManager.forceReloadAllModels();
+        // 仅重载本地玩家的模型（不影响其他远程玩家的模型和动画）
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        if (mc.player != null) {
+            String playerName = mc.player.getName().getString();
+            com.shiroha.mmdskin.renderer.model.MMDModelManager.forceReloadPlayerModels(playerName);
+        }
         
         logger.info("玩家选择模型: {}", card.displayName);
     }

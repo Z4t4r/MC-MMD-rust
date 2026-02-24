@@ -47,6 +47,7 @@ public abstract class AbstractMmdSkinConfig implements ConfigManager.IConfigProv
     @Override public float getPhysicsMaxLinearVelocity() { return data.physicsMaxLinearVelocity; }
     @Override public float getPhysicsMaxAngularVelocity() { return data.physicsMaxAngularVelocity; }
     @Override public boolean isPhysicsJointsEnabled() { return data.physicsJointsEnabled; }
+    @Override public boolean isPhysicsKinematicFilter() { return data.physicsKinematicFilter; }
     @Override public boolean isPhysicsDebugLog() { return data.physicsDebugLog; }
 
     // ==================== 第一人称 / 调试 / 纹理缓存 ====================

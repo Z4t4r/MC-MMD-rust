@@ -97,7 +97,6 @@ public class StagePack {
         // 按名称排序
         packs.sort((a, b) -> a.name.compareToIgnoreCase(b.name));
         
-        logger.info("[StagePack] 扫描到 {} 个舞台包", packs.size());
         return packs;
     }
     

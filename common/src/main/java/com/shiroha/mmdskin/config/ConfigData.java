@@ -55,6 +55,7 @@ public class ConfigData {
     public float physicsMaxLinearVelocity = 20.0f;
     public float physicsMaxAngularVelocity = 20.0f;
     public boolean physicsJointsEnabled = true;
+    public boolean physicsKinematicFilter = true;
     public boolean physicsDebugLog = false;
     
     // 第一人称模型显示
@@ -79,7 +80,6 @@ public class ConfigData {
         Path configFile = configPath.resolve("config.json");
         
         if (!Files.exists(configFile)) {
-            logger.info("配置文件不存在，创建默认配置: {}", configFile);
             ConfigData defaultConfig = new ConfigData();
             defaultConfig.save(configPath);
             return defaultConfig;
@@ -91,7 +91,6 @@ public class ConfigData {
                 logger.warn("配置文件为空，使用默认配置");
                 return new ConfigData();
             }
-            logger.info("配置加载成功: {}", configFile);
             return config;
         } catch (Exception e) {
             logger.error("配置加载失败，使用默认配置: {}", e.getMessage());
@@ -112,7 +111,6 @@ public class ConfigData {
             Path configFile = configPath.resolve("config.json");
             try (Writer writer = Files.newBufferedWriter(configFile)) {
                 GSON.toJson(this, writer);
-                logger.info("配置已保存: {}", configFile);
             }
         } catch (IOException e) {
             logger.error("保存配置失败: {}", e.getMessage());

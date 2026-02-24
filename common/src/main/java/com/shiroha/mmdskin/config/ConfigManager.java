@@ -13,7 +13,6 @@ public class ConfigManager {
     
     public static void init(IConfigProvider configProvider) {
         provider = configProvider;
-        logger.info("配置管理器初始化完成，使用提供者: " + configProvider.getClass().getSimpleName());
     }
     
     // ==================== 渲染配置 ====================
@@ -134,6 +133,10 @@ public class ConfigManager {
     
     public static boolean isPhysicsJointsEnabled() {
         return provider != null ? provider.isPhysicsJointsEnabled() : true;
+    }
+    
+    public static boolean isPhysicsKinematicFilter() {
+        return provider != null ? provider.isPhysicsKinematicFilter() : true;
     }
     
     public static boolean isPhysicsDebugLog() {

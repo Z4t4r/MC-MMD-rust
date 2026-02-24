@@ -32,6 +32,9 @@ public interface IPhysicsConfig {
     /** 是否启用关节（默认 true） */
     default boolean isPhysicsJointsEnabled() { return true; }
 
+    /** 运动学-动态碰撞过滤（默认 true） */
+    default boolean isPhysicsKinematicFilter() { return true; }
+
     /** 是否输出调试日志（默认 false） */
     default boolean isPhysicsDebugLog() { return false; }
 }

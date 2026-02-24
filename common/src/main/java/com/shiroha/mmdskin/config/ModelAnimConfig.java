@@ -127,7 +127,6 @@ public final class ModelAnimConfig {
                     result.put(k, v);
                 }
             });
-            logger.info("加载模型动画映射: {} ({} 条)", configFile.getName(), result.size());
             return result;
         } catch (Exception e) {
             logger.warn("加载模型动画映射失败: {}", e.getMessage());

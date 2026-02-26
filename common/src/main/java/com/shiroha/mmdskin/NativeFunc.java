@@ -109,6 +109,14 @@ public class NativeFunc {
      */
     public native void TransitionLayerTo(long model, long layer, long anim, float transitionTime);
 
+    /**
+     * 设置动画层是否循环播放
+     * @param model 模型句柄
+     * @param layer 动画层ID（0-3）
+     * @param loop true=循环播放，false=播放到尾帧后停留
+     */
+    public native void SetLayerLoop(long model, long layer, boolean loop);
+
     public native void ResetModelPhysics(long model);
 
     public native long CreateMat();

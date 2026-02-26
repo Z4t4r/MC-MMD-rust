@@ -46,6 +46,13 @@ public interface IMMDModel {
     void transitionAnim(long anim, long layer, float transitionTime);
 
     /**
+     * 设置动画层是否循环播放
+     * @param layer 动画层
+     * @param loop true=循环，false=播放到尾帧后停留
+     */
+    default void setLayerLoop(long layer, boolean loop) {}
+
+    /**
      * 重置物理模拟
      */
     void resetPhysics();

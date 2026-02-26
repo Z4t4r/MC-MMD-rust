@@ -51,6 +51,7 @@ public final class MmdSkinRendererPlayerHelper {
         IMMDModel model = mwed.model;
         mwed.entityData.playCustomAnim = false;
         model.changeAnim(MMDAnimManager.GetAnimModel(model, "idle"), 0);
+        model.setLayerLoop(1, true);
         model.changeAnim(0, 1);
         model.changeAnim(0, 2);
         model.resetPhysics();
@@ -67,6 +68,7 @@ public final class MmdSkinRendererPlayerHelper {
         IMMDModel model = mwed.model;
         mwed.entityData.playCustomAnim = true;
         model.changeAnim(MMDAnimManager.GetAnimModel(model, id), 0);
+        model.setLayerLoop(1, true);
         model.changeAnim(0, 1);
         model.changeAnim(0, 2);
     }

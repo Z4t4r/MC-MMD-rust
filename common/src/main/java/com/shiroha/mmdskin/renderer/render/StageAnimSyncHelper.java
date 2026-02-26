@@ -87,6 +87,7 @@ public final class StageAnimSyncHelper {
         NativeFunc nf = NativeFunc.GetInst();
         long modelHandle = mwed.model.getModelHandle();
         nf.TransitionLayerTo(modelHandle, 0, mergedAnim, 0.3f);
+        mwed.model.setLayerLoop(1, true);
         mwed.model.changeAnim(0, 1);
         mwed.model.changeAnim(0, 2);
         mwed.entityData.playCustomAnim = true;

@@ -89,6 +89,11 @@ public abstract class AbstractMMDModel implements IMMDModel {
     }
 
     @Override
+    public void setLayerLoop(long layer, boolean loop) {
+        if (model != 0) getNf().SetLayerLoop(model, layer, loop);
+    }
+
+    @Override
     public void resetPhysics() {
         if (model != 0) getNf().ResetModelPhysics(model);
     }

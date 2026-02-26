@@ -76,11 +76,20 @@ public class AnimationStateManager {
     
     private static void updateRidingAnimation(AbstractClientPlayer player, Model model) {
         var vehicle = player.getVehicle();
-        if (vehicle != null && vehicle.getType() == EntityType.HORSE && hasMovement(player)) {
+        if (vehicle != null && isHorselike(vehicle.getType()) && hasMovement(player)) {
             changeAnimationOnce(model, EntityAnimState.State.OnHorse, 0);
         } else {
             changeAnimationOnce(model, EntityAnimState.State.Ride, 0);
         }
+    }
+
+    /** 判断是否为马科坐骑（共用骑马奔跑动画） */
+    private static boolean isHorselike(EntityType<?> type) {
+        return type == EntityType.HORSE
+            || type == EntityType.DONKEY
+            || type == EntityType.MULE
+            || type == EntityType.SKELETON_HORSE
+            || type == EntityType.ZOMBIE_HORSE;
     }
     
     private static void updateClimbingAnimation(AbstractClientPlayer player, Model model) {
@@ -106,6 +115,7 @@ public class AnimationStateManager {
         if ((!player.isUsingItem() && !player.swinging) || player.isSleeping()) {
             if (model.entityData.stateLayers[1] != EntityAnimState.State.Idle) {
                 model.entityData.stateLayers[1] = EntityAnimState.State.Idle;
+                model.model.setLayerLoop(1, true); // 恢复循环
                 model.model.transitionAnim(0, 1, TRANSITION_TIME);
             }
         } else {
@@ -150,20 +160,31 @@ public class AnimationStateManager {
     
     private static void applyCustomItemAnimation(Model model, EntityAnimState.State targetState, 
                                                   String itemName, String activeHand, String handState, int layer) {
+        // 物品使用(using)动画不循环（如拉弓），挥手(swinging)动画循环
+        boolean shouldLoop = !"using".equals(handState);
+        
         long anim = MMDAnimManager.GetAnimModel(model.model, 
             String.format("itemActive_%s_%s_%s", itemName, activeHand, handState));
         
         if (anim != 0) {
             if (model.entityData.stateLayers[layer] != targetState) {
                 model.entityData.stateLayers[layer] = targetState;
+                model.model.setLayerLoop(layer, shouldLoop);
                 model.model.transitionAnim(anim, layer, TRANSITION_TIME);
             }
             return;
         }
         
+        // 回退到通用挥手动画，仅在状态变化时设置循环模式
         if (targetState == EntityAnimState.State.ItemRight || targetState == EntityAnimState.State.SwingRight) {
+            if (model.entityData.stateLayers[layer] != EntityAnimState.State.SwingRight) {
+                model.model.setLayerLoop(layer, shouldLoop);
+            }
             changeAnimationOnce(model, EntityAnimState.State.SwingRight, layer);
         } else if (targetState == EntityAnimState.State.ItemLeft || targetState == EntityAnimState.State.SwingLeft) {
+            if (model.entityData.stateLayers[layer] != EntityAnimState.State.SwingLeft) {
+                model.model.setLayerLoop(layer, shouldLoop);
+            }
             changeAnimationOnce(model, EntityAnimState.State.SwingLeft, layer);
         }
     }

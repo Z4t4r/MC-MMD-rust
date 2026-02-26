@@ -108,14 +108,6 @@ public class RenderModeManager {
         return isEnabled(RenderCategory.GPU_SKINNING);
     }
     
-    public static void setUseNativeRender(boolean enabled) {
-        setEnabled(RenderCategory.NATIVE_RENDER, enabled);
-    }
-    
-    public static boolean isUseNativeRender() {
-        return isEnabled(RenderCategory.NATIVE_RENDER);
-    }
-    
     // ==================== 工厂查询 ====================
     
     /**

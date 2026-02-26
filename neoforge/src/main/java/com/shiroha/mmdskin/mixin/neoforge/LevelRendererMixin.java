@@ -37,7 +37,8 @@ public abstract class LevelRendererMixin {
                 // 检查是否为 MMD 默认/原版模型状态
                 boolean isMmdDefault = selectedModel == null || selectedModel.isEmpty() || selectedModel.equals("默认 (原版渲染)");
                 boolean isMmdActive = !isMmdDefault;
-                boolean isVanilaMmdModel = isMmdActive && (selectedModel.equals("VanilaModel") || selectedModel.equalsIgnoreCase("vanila"));
+                boolean isVanilaMmdModel = isMmdActive && (selectedModel.equals("VanillaModel") || selectedModel.equalsIgnoreCase("vanilla")
+                        || selectedModel.equals("VanilaModel") || selectedModel.equalsIgnoreCase("vanila"));
 
                 // 核心逻辑调整：
                 // 1. 如果 YSM 插件处于激活状态

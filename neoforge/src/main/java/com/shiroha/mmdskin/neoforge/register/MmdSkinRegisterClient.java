@@ -15,6 +15,7 @@ import com.shiroha.mmdskin.ui.QuickModelSwitcher;
 import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 import com.shiroha.mmdskin.ui.network.StageNetworkHandler;
 import com.shiroha.mmdskin.renderer.camera.StageAudioPlayer;
+import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
 import com.shiroha.mmdskin.util.KeyMappingUtil;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -241,6 +242,9 @@ public class MmdSkinRegisterClient {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player == null) return;
             
+            // 模型/纹理缓存 GC
+            MMDModelManager.tick();
+
             // 主配置轮盘按键处理
             if (mc.screen == null || mc.screen instanceof ConfigWheelScreen) {
                 boolean keyDown = keyConfigWheel.isDown();

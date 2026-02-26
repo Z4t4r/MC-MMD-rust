@@ -17,6 +17,7 @@ import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 import com.shiroha.mmdskin.ui.network.StageNetworkHandler;
 import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
 import com.shiroha.mmdskin.renderer.camera.StageAudioPlayer;
+import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
 import com.shiroha.mmdskin.util.KeyMappingUtil;
 
@@ -193,6 +194,11 @@ public class MmdSkinRegisterClient {
 
         // 远程舞台音频距离衰减（每秒更新一次）
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (MCinstance.player == null) return;
+
+            // 模型/纹理缓存 GC
+            MMDModelManager.tick();
+
             StageAudioPlayer.tickRemoteAttenuation();
 
             // 舞台模式死亡/复活检测

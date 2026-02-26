@@ -110,24 +110,45 @@ public class ConfigData {
     }
     
     /**
-     * 复制当前值到另一个配置对象（通过 Gson 序列化自动覆盖所有字段，避免手动遗漏）
+     * 复制当前值到另一个配置对象（直接字段赋值，新增字段时需同步更新）
      */
     public void copyTo(ConfigData other) {
-        ConfigData snapshot = GSON.fromJson(GSON.toJson(this), ConfigData.class);
-        // 用反序列化结果覆盖 other 的所有字段
-        snapshot.copyFieldsTo(other);
-    }
-    
-    /** 反射安全的字段复制（Gson 反序列化后的中间步骤） */
-    private void copyFieldsTo(ConfigData target) {
-        for (var field : ConfigData.class.getDeclaredFields()) {
-            // 跳过 static/final 字段（logger、GSON 等）
-            if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
-            try {
-                field.set(target, field.get(this));
-            } catch (IllegalAccessException e) {
-                logger.warn("配置字段复制失败: {}", field.getName());
-            }
-        }
+        // 渲染设置
+        other.openGLEnableLighting = this.openGLEnableLighting;
+        other.modelPoolMaxCount = this.modelPoolMaxCount;
+        other.mmdShaderEnabled = this.mmdShaderEnabled;
+        // GPU 加速
+        other.gpuSkinningEnabled = this.gpuSkinningEnabled;
+        other.gpuMorphEnabled = this.gpuMorphEnabled;
+        other.maxBones = this.maxBones;
+        // Toon 渲染
+        other.toonRenderingEnabled = this.toonRenderingEnabled;
+        other.toonLevels = this.toonLevels;
+        other.toonRimPower = this.toonRimPower;
+        other.toonRimIntensity = this.toonRimIntensity;
+        other.toonShadowR = this.toonShadowR;
+        other.toonShadowG = this.toonShadowG;
+        other.toonShadowB = this.toonShadowB;
+        other.toonSpecularPower = this.toonSpecularPower;
+        other.toonSpecularIntensity = this.toonSpecularIntensity;
+        other.toonOutlineEnabled = this.toonOutlineEnabled;
+        other.toonOutlineWidth = this.toonOutlineWidth;
+        other.toonOutlineR = this.toonOutlineR;
+        other.toonOutlineG = this.toonOutlineG;
+        other.toonOutlineB = this.toonOutlineB;
+        // 物理引擎
+        other.physicsEnabled = this.physicsEnabled;
+        other.physicsGravityY = this.physicsGravityY;
+        other.physicsFps = this.physicsFps;
+        other.physicsMaxSubstepCount = this.physicsMaxSubstepCount;
+        other.physicsInertiaStrength = this.physicsInertiaStrength;
+        other.physicsMaxLinearVelocity = this.physicsMaxLinearVelocity;
+        other.physicsMaxAngularVelocity = this.physicsMaxAngularVelocity;
+        other.physicsJointsEnabled = this.physicsJointsEnabled;
+        other.physicsDebugLog = this.physicsDebugLog;
+        // 第一人称
+        other.firstPersonModelEnabled = this.firstPersonModelEnabled;
+        other.firstPersonCameraForwardOffset = this.firstPersonCameraForwardOffset;
+        other.firstPersonCameraVerticalOffset = this.firstPersonCameraVerticalOffset;
     }
 }

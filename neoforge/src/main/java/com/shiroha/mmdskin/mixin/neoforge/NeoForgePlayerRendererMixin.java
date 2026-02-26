@@ -7,6 +7,7 @@ import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
 import com.shiroha.mmdskin.renderer.core.FirstPersonManager;
 import com.shiroha.mmdskin.renderer.render.ItemRenderHelper;
 import com.shiroha.mmdskin.renderer.render.InventoryRenderHelper;
+import com.shiroha.mmdskin.renderer.render.PlayerRenderHelper;
 import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 import com.shiroha.mmdskin.config.ModelConfigManager;
 import com.shiroha.mmdskin.neoforge.YsmCompat;
@@ -109,10 +110,10 @@ public abstract class NeoForgePlayerRendererMixin extends LivingEntityRenderer<A
             IMMDModel model = modelData.model;
                 
             // 加载模型属性
-            modelData.loadModelProperties(MmdSkinClient.reloadProperties);
+            modelData.loadModelProperties(false);
                 
             // 获取模型尺寸
-            float[] size = getModelSize(modelData);
+            float[] size = PlayerRenderHelper.getModelSize(modelData);
 
                 // 第一人称模式管理（阶段一：管理头部隐藏状态，在 render 之前）
                 float combinedScale = size[0] * ModelConfigManager.getConfig(selectedModel).modelScale;
@@ -126,7 +127,7 @@ public abstract class NeoForgePlayerRendererMixin extends LivingEntityRenderer<A
                     AnimationStateManager.updateAnimationState(player, modelData);
                     
                     // 计算渲染参数
-                    RenderParams params = calculateRenderParams(player, modelData, tickDelta);
+                    RenderParams params = PlayerRenderHelper.calculateRenderParams(player, modelData, tickDelta);
                     
                     int finalLight = packedLight;
                     if (modelData.entityData.playStageAnim || MMDCameraController.getInstance().isActive()) {
@@ -176,59 +177,5 @@ public abstract class NeoForgePlayerRendererMixin extends LivingEntityRenderer<A
                     ci.cancel();
                 }
             }
-    }
-    
-    /**
-     * 计算渲染参数
-     */
-    private RenderParams calculateRenderParams(AbstractClientPlayer player, MMDModelManager.Model modelData, float tickDelta) {
-        RenderParams params = new RenderParams();
-        params.bodyYaw = Mth.rotLerp(tickDelta, player.yBodyRotO, player.yBodyRot);
-        params.bodyPitch = 0.0f;
-        params.translation = new Vector3f(0.0f);
-        
-        // 根据状态调整参数
-        if (player.isFallFlying()) {
-            params.bodyPitch = player.getXRot() + getPropertyFloat(modelData, "flyingPitch", 0.0f);
-            params.translation = getPropertyVector(modelData, "flyingTrans");
-        } else if (player.isSleeping()) {
-            params.bodyYaw = player.getBedOrientation().toYRot() + 180.0f;
-            params.bodyPitch = getPropertyFloat(modelData, "sleepingPitch", 0.0f);
-            params.translation = getPropertyVector(modelData, "sleepingTrans");
-        } else if (player.isSwimming()) {
-            params.bodyPitch = player.getXRot() + getPropertyFloat(modelData, "swimmingPitch", 0.0f);
-            params.translation = getPropertyVector(modelData, "swimmingTrans");
-        } else if (player.isVisuallyCrawling()) {
-            params.bodyPitch = getPropertyFloat(modelData, "crawlingPitch", 0.0f);
-            params.translation = getPropertyVector(modelData, "crawlingTrans");
-        }
-        
-        return params;
-    }
-    
-    /**
-     * 获取模型尺寸
-     */
-    private float[] getModelSize(MMDModelManager.Model modelData) {
-        float[] size = new float[2];
-        size[0] = getPropertyFloat(modelData, "size", 1.0f);
-        size[1] = getPropertyFloat(modelData, "size_in_inventory", 1.0f);
-        return size;
-    }
-    
-    /**
-     * 获取属性浮点值
-     */
-    private float getPropertyFloat(MMDModelManager.Model modelData, String key, float defaultValue) {
-        String value = modelData.properties.getProperty(key);
-        return value == null ? defaultValue : Float.parseFloat(value);
-    }
-    
-    /**
-     * 获取属性向量值
-     */
-    private Vector3f getPropertyVector(MMDModelManager.Model modelData, String key) {
-        String value = modelData.properties.getProperty(key);
-        return value == null ? new Vector3f(0.0f) : MmdSkinClient.str2Vec3f(value);
     }
 }

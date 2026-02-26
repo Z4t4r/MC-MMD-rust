@@ -202,11 +202,15 @@ public final class NativeLibraryLoader {
         var javaLibSoFile = new File(javaLibDir, soFileName);
         if (javaLibDir.canWrite()) {
             try (InputStream is = NativeLibraryLoader.class.getResourceAsStream(resourcePath)) {
-                Files.copy(is, javaLibSoFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                logger.info("[Android] 已将 libmmd_engine.so 解压至 " + javaLibSoFile.getAbsolutePath());
-                System.load(javaLibSoFile.getAbsolutePath());
-                logger.info("[Android] " + javaLibSoFile.getAbsolutePath() + " 已加载");
-                return;
+                if (is == null) {
+                    logger.warn("[Android] 策略0: 内置资源未找到: " + resourcePath);
+                } else {
+                    Files.copy(is, javaLibSoFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    logger.info("[Android] 已将 libmmd_engine.so 解压至 " + javaLibSoFile.getAbsolutePath());
+                    System.load(javaLibSoFile.getAbsolutePath());
+                    logger.info("[Android] " + javaLibSoFile.getAbsolutePath() + " 已加载");
+                    return;
+                }
             } catch (IOException | Error e) {
                 logger.error("[Android] " + javaLibSoFile.getAbsolutePath() + "加载失败：" + e.getMessage());
             }

@@ -35,7 +35,6 @@ import org.apache.logging.log4j.Logger;
 public class MMDAnimManager {
     public static final Logger logger = LogManager.getLogger();
     static NativeFunc nf;
-    static Map<String, Long> animStatic; // 线程安全
     static Map<IMMDModel, Map<String, Long>> animModel; // 线程安全
     
     // 动画文件目录（延迟初始化）
@@ -47,7 +46,6 @@ public class MMDAnimManager {
 
     public static void Init() {
         nf = NativeFunc.GetInst();
-        animStatic = new ConcurrentHashMap<>(); // 线程安全
         animModel = new ConcurrentHashMap<>(); // 线程安全
         warnedAnimations = ConcurrentHashMap.newKeySet(); // 线程安全
         
@@ -84,6 +82,7 @@ public class MMDAnimManager {
     }
 
     public static void DeleteModel(IMMDModel model) {
+        if (nf == null || animModel == null) return;
         Map<String, Long> sub = animModel.get(model);
         if (sub != null) {
             for (Long i : sub.values()) {

@@ -25,7 +25,6 @@ import org.joml.Vector3f;
 public class MmdSkinClient {
     public static final Logger logger = LogManager.getLogger();
     public static int usingMMDShader = 0;
-    public static boolean reloadProperties = false;
     static final int BUFFER = 512;
     static final long TOOBIG = 0x6400000; // Max size of unzipped data, 100MB
     static final int TOOMANY = 1024;      // Max number of files
@@ -84,7 +83,8 @@ public class MmdSkinClient {
         File defaultAnimDir = PathConstants.getDefaultAnimDir();
         
         // 如果目录不存在或为空，则提取内置动画
-        if (!defaultAnimDir.exists() || defaultAnimDir.list() == null || defaultAnimDir.list().length == 0) {
+        String[] files = defaultAnimDir.list();
+        if (!defaultAnimDir.exists() || files == null || files.length == 0) {
             logger.info("DefaultAnim 目录缺失，从模组内置资源提取...");
             PathConstants.ensureDirectoryExists(defaultAnimDir);
             
@@ -131,7 +131,7 @@ public class MmdSkinClient {
                 byte data[] = new byte[BUFFER];
                 // Write the files to the disk, but ensure that the filename is valid,
                 // and that the file is not insanely big
-                String name = validateFilename(targetDir+entry.getName(), ".");
+                String name = validateFilename(targetDir+entry.getName(), targetDir);
                 File targetFile = new File(name);
                 if (entry.isDirectory()) {
                     logger.info("Creating directory " + name);
@@ -169,21 +169,30 @@ public class MmdSkinClient {
             logger.info("3d-skin folder not found, try download from github!");
             skin3DFolder.mkdir();
             String gameDir = PathConstants.getGameDirectory();
+            File zipFile = new File(gameDir, PathConstants.RESOURCE_ZIP_NAME);
+
+            boolean downloadSuccess = false;
             try{
                 FileUtils.copyURLToFile(URI.create(PathConstants.RESOURCE_DOWNLOAD_URL).toURL(), 
-                    new File(gameDir, PathConstants.RESOURCE_ZIP_NAME), 30000, 30000);
+                    zipFile, 30000, 30000);
+                downloadSuccess = true;
             }catch (IOException e){
-                logger.info("Download 3d-skin.zip failed!");
+                logger.error("Download 3d-skin.zip failed: {}", e.getMessage());
             }
 
-            try{
-                unzip(gameDir + "/" + PathConstants.RESOURCE_ZIP_NAME, 
-                      PathConstants.getSkinRootPath() + "/");
-            }catch (IOException e){
-                logger.info("extract 3d-skin.zip failed!");
+            if (downloadSuccess) {
+                try{
+                    unzip(zipFile.getAbsolutePath(), 
+                          PathConstants.getSkinRootPath() + "/");
+                }catch (IOException e){
+                    logger.error("extract 3d-skin.zip failed: {}", e.getMessage());
+                }
             }
+
+            try {
+                zipFile.delete();
+            } catch (Exception ignored) {}
         }
-        return;
     }
 
     public static String calledFrom(int i){
@@ -195,19 +204,18 @@ public class MmdSkinClient {
     }
 
     public static Vector3f str2Vec3f(String arg){
-        Vector3f vector3f = new Vector3f();
         String[] splittedStr = arg.split(",");
         if (splittedStr.length != 3){
             return new Vector3f(0.0f);
         }
-        vector3f.x = Float.valueOf(splittedStr[0]);
-        vector3f.y = Float.valueOf(splittedStr[1]);
-        vector3f.z = Float.valueOf(splittedStr[2]);
-        return vector3f;
-    }
-    
-    public static void drawText(String arg, int x, int y){
-        // MC 1.21.1: RenderSystem.getModelViewStack() 已移除，使用新的渲染 API
-        // 此方法暂不使用，保留空实现
+        try {
+            float x = Float.parseFloat(splittedStr[0]);
+            float y = Float.parseFloat(splittedStr[1]);
+            float z = Float.parseFloat(splittedStr[2]);
+            return new Vector3f(x, y, z);
+        } catch (NumberFormatException e) {
+            logger.warn("向量解析失败: {}", arg);
+            return new Vector3f(0.0f);
+        }
     }
 }

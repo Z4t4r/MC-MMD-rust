@@ -46,6 +46,9 @@ pub struct BoneSet {
     
     /// 更新标志
     needs_hierarchy_update: bool,
+    
+    /// VRM 标志（VMD 旋转/平移需要额外坐标系转换）
+    is_vrm: bool,
 }
 
 impl BoneSet {
@@ -60,6 +63,7 @@ impl BoneSet {
             physics_bone_indices: HashSet::new(),
             children_cache: Vec::new(),
             needs_hierarchy_update: true,
+            is_vrm: false,
         }
     }
     
@@ -250,9 +254,9 @@ impl BoneSet {
     // 物理骨骼管理
     // ========================================
     
-    /// 设置物理骨骼索引集合
-    pub fn set_physics_bone_indices(&mut self, indices: HashSet<usize>) {
-        self.physics_bone_indices = indices;
+    /// 设置物理骨骼索引集合（接受引用，内部 clone）
+    pub fn set_physics_bone_indices(&mut self, indices: &HashSet<usize>) {
+        self.physics_bone_indices.clone_from(indices);
     }
     
     /// 清除物理骨骼索引集合
@@ -460,7 +464,7 @@ impl BoneSet {
         }
     }
     
-    /// 添加骨骼旋转
+    /// 添加骨骼旋转（头部/眼球追踪等非 VMD 数据，不做坐标系转换）
     pub fn add_bone_rotation(&mut self, index: usize, rotation: Quat) {
         if let Some(bone) = self.links.get_mut(index) {
             bone.animation_rotate = bone.animation_rotate * rotation;
@@ -548,6 +552,20 @@ impl BoneSet {
         self.links[index].animation_translate = translation - self.links[index].body_shift;
     }
     
+    /// 更新单个骨骼的全局变换（VR IK 用：头部旋转后刷新子骨骼链）
+    pub fn update_single_bone_global(&mut self, index: usize) {
+        if index >= self.links.len() { return; }
+        self.links[index].compute_local_transform();
+        let parent_idx = self.links[index].parent_index;
+        if parent_idx >= 0 && (parent_idx as usize) < self.links.len() {
+            self.links[index].local_to_world =
+                self.links[parent_idx as usize].local_to_world * self.links[index].local_to_parent;
+        } else {
+            self.links[index].local_to_world = self.links[index].local_to_parent;
+        }
+        self.update_children_global_transform(index);
+    }
+
     /// 递归更新子骨骼全局变换
     fn update_children_global_transform(&mut self, parent_index: usize) {
         let parent_global = self.links[parent_index].local_to_world;
@@ -601,11 +619,63 @@ impl BoneSet {
         }
     }
     
+    /// 覆盖指定骨骼的逆绑定矩阵（VRM 加载时用 glTF IBM 替换纯平移版本）
+    #[inline]
+    pub fn set_inverse_init(&mut self, index: usize, matrix: Mat4) {
+        if let Some(bone) = self.links.get_mut(index) {
+            bone.inverse_init = matrix;
+        }
+    }
+    
+    /// 标记为 VRM 骨骼系统（VMD 动画旋转/平移自动做 Y 轴 180° 坐标系转换）
+    #[inline]
+    pub fn set_vrm(&mut self, is_vrm: bool) {
+        self.is_vrm = is_vrm;
+    }
+    
+    #[inline]
+    pub fn is_vrm(&self) -> bool {
+        self.is_vrm
+    }
+    
+    /// VMD→VRM 旋转转换
+    ///
+    /// VRM 加载时已做 Z-flip，与 PMX 在同一坐标空间，无需额外转换
+    #[inline]
+    pub fn convert_vmd_rotation(&self, q: Quat) -> Quat {
+        q
+    }
+    
+    /// VMD→VRM 平移转换
+    #[inline]
+    pub fn convert_vmd_translation(&self, v: Vec3) -> Vec3 {
+        v
+    }
+    
     /// 更新蒙皮矩阵
     pub fn update_skinning_matrices(&mut self) {
         for i in 0..self.links.len() {
             self.skinning_matrices[i] = self.links[i].get_skinning_matrix();
         }
+    }
+    
+    /// 计算 BoneSet 的堆内存占用（字节）
+    pub fn memory_usage(&self) -> u64 {
+        use std::mem::size_of;
+        let mut total: u64 = 0;
+        total += (self.links.capacity() * size_of::<BoneLink>()) as u64;
+        // name_to_index HashMap 估算
+        total += (self.name_to_index.capacity() * (size_of::<String>() + size_of::<usize>())) as u64;
+        total += (self.sorted_indices.capacity() * size_of::<usize>()) as u64;
+        total += (self.ik_solvers.capacity() * size_of::<IkSolver>()) as u64;
+        total += (self.skinning_matrices.capacity() * size_of::<Mat4>()) as u64;
+        total += (self.physics_bone_indices.capacity() * size_of::<usize>()) as u64;
+        // children_cache: Vec<Vec<usize>>
+        for children in &self.children_cache {
+            total += (children.capacity() * size_of::<usize>()) as u64;
+        }
+        total += (self.children_cache.capacity() * size_of::<Vec<usize>>()) as u64;
+        total
     }
 }
 

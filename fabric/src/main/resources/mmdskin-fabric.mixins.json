@@ -13,7 +13,9 @@
     "LevelRendererMixin",
     "ItemInHandRendererMixin",
     "MinecraftMixin",
-    "MouseHandlerMixin"
+    "MouseHandlerMixin",
+    "KeyboardInputMixin",
+    "EntityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -56,6 +56,28 @@ public class ModConfigScreen {
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.first_person_model.tooltip"))
             .setSaveConsumer(value -> data.firstPersonModelEnabled = value)
             .build());
+
+        renderCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.first_person_camera_forward_offset"),
+                Math.round(data.firstPersonCameraForwardOffset * 1000.0F),
+                -100, 500)
+            .setDefaultValue(0)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.first_person_camera_forward_offset.tooltip"))
+            .setTextGetter(value -> Component.literal(String.format("%.3f", value.intValue() / 1000.0F)))
+            .setSaveConsumer(value -> data.firstPersonCameraForwardOffset = value.intValue() / 1000.0F)
+            .build());
+
+        renderCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.first_person_camera_vertical_offset"),
+                Math.round(data.firstPersonCameraVerticalOffset * 1000.0F),
+                -500, 500)
+            .setDefaultValue(0)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.first_person_camera_vertical_offset.tooltip"))
+            .setTextGetter(value -> Component.literal(String.format("%.3f", value.intValue() / 1000.0F)))
+            .setSaveConsumer(value -> data.firstPersonCameraVerticalOffset = value.intValue() / 1000.0F)
+            .build());
         
         // 性能设置分类
         ConfigCategory performanceCategory = builder.getOrCreateCategory(
@@ -64,8 +86,8 @@ public class ModConfigScreen {
         performanceCategory.addEntry(entryBuilder
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.model_pool_max"),
-                data.modelPoolMaxCount, 10, 500)
-            .setDefaultValue(100)
+                data.modelPoolMaxCount, 5, 100)
+            .setDefaultValue(20)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.model_pool_max.tooltip"))
             .setSaveConsumer(value -> data.modelPoolMaxCount = value)
             .build());
@@ -95,6 +117,16 @@ public class ModConfigScreen {
             .setDefaultValue(2048)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.max_bones.tooltip"))
             .setSaveConsumer(value -> data.maxBones = value)
+            .build());
+        
+        performanceCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.texture_cache_budget"),
+                data.textureCacheBudgetMB, 64, 1024)
+            .setDefaultValue(256)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.texture_cache_budget.tooltip"))
+            .setTextGetter(value -> Component.literal(value + " MB"))
+            .setSaveConsumer(value -> data.textureCacheBudgetMB = value)
             .build());
         
         // Toon 渲染设置分类（3渲2）
@@ -227,18 +259,28 @@ public class ModConfigScreen {
             .setSaveConsumer(value -> data.toonOutlineB = value / 100.0f)
             .build());
         
-        // ==================== 物理引擎设置分类 ====================
+        // ==================== 物理引擎设置分类（Bullet3） ====================
         ConfigCategory physicsCategory = builder.getOrCreateCategory(
             Component.translatable("gui.mmdskin.mod_settings.category.physics"));
         
-        // 重力
+        // 启用物理模拟
+        physicsCategory.addEntry(entryBuilder
+            .startBooleanToggle(
+                Component.translatable("gui.mmdskin.mod_settings.physics_enabled"),
+                data.physicsEnabled)
+            .setDefaultValue(true)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_enabled.tooltip"))
+            .setSaveConsumer(value -> data.physicsEnabled = value)
+            .build());
+        
+        // 重力（MMD 标准 -98.0，滑块显示正值）
         physicsCategory.addEntry(entryBuilder
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.physics_gravity"),
-                (int)(data.physicsGravityY * -10), 1, 200)
-            .setDefaultValue(38)
+                (int)(data.physicsGravityY * -1), 10, 200)
+            .setDefaultValue(98)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_gravity.tooltip"))
-            .setSaveConsumer(value -> data.physicsGravityY = value / -10.0f)
+            .setSaveConsumer(value -> data.physicsGravityY = value * -1.0f)
             .build());
         
         // 物理 FPS
@@ -256,89 +298,9 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.physics_substeps"),
                 data.physicsMaxSubstepCount, 1, 10)
-            .setDefaultValue(4)
+            .setDefaultValue(5)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_substeps.tooltip"))
             .setSaveConsumer(value -> data.physicsMaxSubstepCount = value)
-            .build());
-        
-        // 求解器迭代
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_solver_iterations"),
-                data.physicsSolverIterations, 1, 16)
-            .setDefaultValue(4)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_solver_iterations.tooltip"))
-            .setSaveConsumer(value -> data.physicsSolverIterations = value)
-            .build());
-        
-        // 线性阻尼
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_linear_damping"),
-                (int)(data.physicsLinearDampingScale * 100), 0, 200)
-            .setDefaultValue(30)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_linear_damping.tooltip"))
-            .setSaveConsumer(value -> data.physicsLinearDampingScale = value / 100.0f)
-            .build());
-        
-        // 角速度阻尼
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_angular_damping"),
-                (int)(data.physicsAngularDampingScale * 100), 0, 200)
-            .setDefaultValue(20)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_angular_damping.tooltip"))
-            .setSaveConsumer(value -> data.physicsAngularDampingScale = value / 100.0f)
-            .build());
-        
-        // 质量缩放
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_mass_scale"),
-                (int)(data.physicsMassScale * 10), 1, 100)
-            .setDefaultValue(20)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_mass_scale.tooltip"))
-            .setSaveConsumer(value -> data.physicsMassScale = value / 10.0f)
-            .build());
-        
-        // 线性弹簧刚度
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_linear_stiffness"),
-                (int)(data.physicsLinearSpringStiffnessScale * 1000), 1, 100)
-            .setDefaultValue(10)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_linear_stiffness.tooltip"))
-            .setSaveConsumer(value -> data.physicsLinearSpringStiffnessScale = value / 1000.0f)
-            .build());
-        
-        // 角度弹簧刚度
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_angular_stiffness"),
-                (int)(data.physicsAngularSpringStiffnessScale * 1000), 1, 100)
-            .setDefaultValue(10)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_angular_stiffness.tooltip"))
-            .setSaveConsumer(value -> data.physicsAngularSpringStiffnessScale = value / 1000.0f)
-            .build());
-        
-        // 线性弹簧阻尼
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_linear_spring_damping"),
-                (int)(data.physicsLinearSpringDampingFactor * 10), 1, 200)
-            .setDefaultValue(80)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_linear_spring_damping.tooltip"))
-            .setSaveConsumer(value -> data.physicsLinearSpringDampingFactor = value / 10.0f)
-            .build());
-        
-        // 角度弹簧阻尼
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_angular_spring_damping"),
-                (int)(data.physicsAngularSpringDampingFactor * 10), 1, 200)
-            .setDefaultValue(80)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_angular_spring_damping.tooltip"))
-            .setSaveConsumer(value -> data.physicsAngularSpringDampingFactor = value / 10.0f)
             .build());
         
         // 惯性强度
@@ -346,7 +308,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.physics_inertia"),
                 (int)(data.physicsInertiaStrength * 100), 0, 300)
-            .setDefaultValue(100)
+            .setDefaultValue(50)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_inertia.tooltip"))
             .setSaveConsumer(value -> data.physicsInertiaStrength = value / 100.0f)
             .build());
@@ -355,20 +317,20 @@ public class ModConfigScreen {
         physicsCategory.addEntry(entryBuilder
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.physics_max_linear_velocity"),
-                (int)(data.physicsMaxLinearVelocity * 10), 1, 500)
-            .setDefaultValue(10)
+                (int)data.physicsMaxLinearVelocity, 0, 100)
+            .setDefaultValue(20)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_max_linear_velocity.tooltip"))
-            .setSaveConsumer(value -> data.physicsMaxLinearVelocity = value / 10.0f)
+            .setSaveConsumer(value -> data.physicsMaxLinearVelocity = value)
             .build());
         
         // 最大角速度
         physicsCategory.addEntry(entryBuilder
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.physics_max_angular_velocity"),
-                (int)(data.physicsMaxAngularVelocity * 10), 1, 500)
-            .setDefaultValue(10)
+                (int)data.physicsMaxAngularVelocity, 0, 100)
+            .setDefaultValue(20)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_max_angular_velocity.tooltip"))
-            .setSaveConsumer(value -> data.physicsMaxAngularVelocity = value / 10.0f)
+            .setSaveConsumer(value -> data.physicsMaxAngularVelocity = value)
             .build());
         
         // 启用关节
@@ -381,87 +343,14 @@ public class ModConfigScreen {
             .setSaveConsumer(value -> data.physicsJointsEnabled = value)
             .build());
         
-        // ====== 胸部物理专用参数 ======
+        // 碰撞过滤
         physicsCategory.addEntry(entryBuilder
             .startBooleanToggle(
-                Component.translatable("gui.mmdskin.mod_settings.physics_bust_enabled"),
-                data.physicsBustEnabled)
+                Component.translatable("gui.mmdskin.mod_settings.physics_kinematic_filter"),
+                data.physicsKinematicFilter)
             .setDefaultValue(true)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_enabled.tooltip"))
-            .setSaveConsumer(value -> data.physicsBustEnabled = value)
-            .build());
-        
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_damping"),
-                (int)(data.physicsBustLinearDampingScale * 100), 0, 500)
-            .setDefaultValue(150)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_damping.tooltip"))
-            .setSaveConsumer(value -> data.physicsBustLinearDampingScale = value / 100.0f)
-            .build());
-        
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_damping"),
-                (int)(data.physicsBustAngularDampingScale * 100), 0, 500)
-            .setDefaultValue(150)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_damping.tooltip"))
-            .setSaveConsumer(value -> data.physicsBustAngularDampingScale = value / 100.0f)
-            .build());
-        
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_bust_mass_scale"),
-                (int)(data.physicsBustMassScale * 10), 1, 100)
-            .setDefaultValue(10)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_mass_scale.tooltip"))
-            .setSaveConsumer(value -> data.physicsBustMassScale = value / 10.0f)
-            .build());
-        
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_stiffness"),
-                (int)(data.physicsBustLinearSpringStiffnessScale * 10), 1, 500)
-            .setDefaultValue(100)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_stiffness.tooltip"))
-            .setSaveConsumer(value -> data.physicsBustLinearSpringStiffnessScale = value / 10.0f)
-            .build());
-        
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_stiffness"),
-                (int)(data.physicsBustAngularSpringStiffnessScale * 10), 1, 500)
-            .setDefaultValue(100)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_stiffness.tooltip"))
-            .setSaveConsumer(value -> data.physicsBustAngularSpringStiffnessScale = value / 10.0f)
-            .build());
-        
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_spring_damping"),
-                (int)(data.physicsBustLinearSpringDampingFactor * 10), 1, 200)
-            .setDefaultValue(30)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_linear_spring_damping.tooltip"))
-            .setSaveConsumer(value -> data.physicsBustLinearSpringDampingFactor = value / 10.0f)
-            .build());
-        
-        physicsCategory.addEntry(entryBuilder
-            .startIntSlider(
-                Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_spring_damping"),
-                (int)(data.physicsBustAngularSpringDampingFactor * 10), 1, 200)
-            .setDefaultValue(30)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_angular_spring_damping.tooltip"))
-            .setSaveConsumer(value -> data.physicsBustAngularSpringDampingFactor = value / 10.0f)
-            .build());
-        
-        // 胸部防凹陷
-        physicsCategory.addEntry(entryBuilder
-            .startBooleanToggle(
-                Component.translatable("gui.mmdskin.mod_settings.physics_bust_clamp_inward"),
-                data.physicsBustClampInward)
-            .setDefaultValue(true)
-            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_bust_clamp_inward.tooltip"))
-            .setSaveConsumer(value -> data.physicsBustClampInward = value)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.physics_kinematic_filter.tooltip"))
+            .setSaveConsumer(value -> data.physicsKinematicFilter = value)
             .build());
         
         // 调试日志
@@ -474,6 +363,42 @@ public class ModConfigScreen {
             .setSaveConsumer(value -> data.physicsDebugLog = value)
             .build());
         
+        // ==================== VR 联动设置 ====================
+        ConfigCategory vrCategory = builder.getOrCreateCategory(
+            Component.translatable("gui.mmdskin.mod_settings.category.vr"));
+
+        vrCategory.addEntry(entryBuilder
+            .startBooleanToggle(
+                Component.translatable("gui.mmdskin.mod_settings.vr_enabled"),
+                data.vrEnabled)
+            .setDefaultValue(true)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.vr_enabled.tooltip"))
+            .setSaveConsumer(value -> data.vrEnabled = value)
+            .build());
+
+        vrCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.vr_arm_ik_strength"),
+                (int)(data.vrArmIKStrength * 100), 0, 100)
+            .setDefaultValue(100)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.vr_arm_ik_strength.tooltip"))
+            .setTextGetter(value -> Component.literal(value + "%"))
+            .setSaveConsumer(value -> data.vrArmIKStrength = value / 100.0f)
+            .build());
+
+        // ==================== 调试设置分类 ====================
+        ConfigCategory debugCategory = builder.getOrCreateCategory(
+            Component.translatable("gui.mmdskin.mod_settings.category.debug"));
+        
+        debugCategory.addEntry(entryBuilder
+            .startBooleanToggle(
+                Component.translatable("gui.mmdskin.mod_settings.debug_hud"),
+                data.debugHudEnabled)
+            .setDefaultValue(false)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.debug_hud.tooltip"))
+            .setSaveConsumer(value -> data.debugHudEnabled = value)
+            .build());
+        
         builder.setSavingRunnable(() -> {
             MmdSkinConfig.save();
             // 同步渲染模式设置到工厂
@@ -483,32 +408,15 @@ public class ModConfigScreen {
             // 同步物理配置到 Rust 引擎
             try {
                 com.shiroha.mmdskin.NativeFunc.GetInst().SetPhysicsConfig(
+                    data.physicsEnabled,
                     data.physicsGravityY,
                     data.physicsFps,
                     data.physicsMaxSubstepCount,
-                    data.physicsSolverIterations,
-                    data.physicsPgsIterations,
-                    data.physicsMaxCorrectiveVelocity,
-                    data.physicsLinearDampingScale,
-                    data.physicsAngularDampingScale,
-                    data.physicsMassScale,
-                    data.physicsLinearSpringStiffnessScale,
-                    data.physicsAngularSpringStiffnessScale,
-                    data.physicsLinearSpringDampingFactor,
-                    data.physicsAngularSpringDampingFactor,
                     data.physicsInertiaStrength,
                     data.physicsMaxLinearVelocity,
                     data.physicsMaxAngularVelocity,
-                    data.physicsBustEnabled,
-                    data.physicsBustLinearDampingScale,
-                    data.physicsBustAngularDampingScale,
-                    data.physicsBustMassScale,
-                    data.physicsBustLinearSpringStiffnessScale,
-                    data.physicsBustAngularSpringStiffnessScale,
-                    data.physicsBustLinearSpringDampingFactor,
-                    data.physicsBustAngularSpringDampingFactor,
-                    data.physicsBustClampInward,
                     data.physicsJointsEnabled,
+                    data.physicsKinematicFilter,
                     data.physicsDebugLog
                 );
             } catch (UnsatisfiedLinkError e) {

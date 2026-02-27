@@ -2,16 +2,12 @@ package com.shiroha.mmdskin.renderer.model;
 
 import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.config.ConfigManager;
-import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
-import com.shiroha.mmdskin.renderer.core.EyeTrackingHelper;
-import com.shiroha.mmdskin.renderer.core.IMMDModel;
 import com.shiroha.mmdskin.renderer.core.IrisCompat;
-import com.shiroha.mmdskin.renderer.core.RenderContext;
 import com.shiroha.mmdskin.renderer.resource.MMDTextureManager;
+import com.shiroha.mmdskin.renderer.shader.ShaderConstants;
 import com.shiroha.mmdskin.renderer.shader.SkinningComputeShader;
 import com.shiroha.mmdskin.renderer.shader.ToonShaderCpu;
 import com.shiroha.mmdskin.renderer.shader.ToonConfig;
-import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferUploader;
@@ -20,14 +16,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.client.renderer.texture.TextureManager;
-import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.level.LightLayer;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.GL46C;
 import org.lwjgl.system.MemoryUtil;
@@ -36,6 +25,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * GPU 蒙皮 MMD 模型渲染器
@@ -48,17 +39,12 @@ import java.nio.IntBuffer;
  * 2. 使用 Minecraft 标准管线（RenderSystem.getShader()）进行渲染
  * 3. Iris 拦截 ShaderInstance 替换为 G-buffer 着色器 → 光影正常工作
  */
-public class MMDModelGpuSkinning implements IMMDModel {
-    private static final Logger logger = LogManager.getLogger();
-    private static NativeFunc nf;
+public class MMDModelGpuSkinning extends AbstractMMDModel {
     private static SkinningComputeShader computeShader;
     private static ToonShaderCpu toonShaderCpu;
     private static final ToonConfig toonConfig = ToonConfig.getInstance();
     
     // 模型数据
-    private long model;
-    private String modelDir;
-    private String cachedModelName;
     private int vertexCount;
     
     // OpenGL 资源 - VAO
@@ -120,20 +106,14 @@ public class MMDModelGpuSkinning implements IMMDModel {
     private int uvMorphWeightsSSBO = 0;
     private int skinnedUvBuffer = 0;
     
-    // 材质 Morph 结果（每材质 28 个 float）
-    private FloatBuffer materialMorphResultsBuffer;
-    private ByteBuffer materialMorphResultsByteBuffer;
-    private int materialMorphResultCount = 0;
-    
     private int indexElementSize;
     private int indexType;
-    private Material[] mats;
-    private Material lightMapMaterial;
+    private MMDMaterial[] mats;
+    private MMDMaterial lightMapMaterial;
     
     // 光照方向（预分配复用）
     private final Vector3f light0Direction = new Vector3f();
     private final Vector3f light1Direction = new Vector3f();
-    private final Quaternionf tempQuat = new Quaternionf();
     
     // 着色器属性位置（G1 优化：按 shaderProgram 缓存，避免每帧重复查询）
     private int shaderProgram;
@@ -154,10 +134,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
     // 临时存储当前 PoseStack，供 renderNormal 使用
     private PoseStack currentDeliverStack;
     
-    // 时间追踪
-    private long lastUpdateTime = -1;
-    private static final float MAX_DELTA_TIME = 0.25f; // 最大 250ms（4FPS），防止暂停后跳跃
-    
     private boolean initialized = false;
     
     private MMDModelGpuSkinning() {}
@@ -166,13 +142,14 @@ public class MMDModelGpuSkinning implements IMMDModel {
      * 创建 GPU 蒙皮模型（Compute Shader 方案）
      */
     public static MMDModelGpuSkinning Create(String modelFilename, String modelDir, boolean isPMD, long layerCount) {
-        if (nf == null) nf = NativeFunc.GetInst();
+        NativeFunc nf = getNf();
         
         // 初始化 Compute Shader（懒加载，全局共享）
         if (computeShader == null) {
             computeShader = new SkinningComputeShader();
             if (!computeShader.init()) {
                 logger.error("蒙皮 Compute Shader 初始化失败，回退到 CPU 蒙皮");
+                computeShader = null;
                 return null;
             }
         }
@@ -186,7 +163,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
         }
         
         if (model == 0) {
-            logger.info("无法打开模型: '{}'", modelFilename);
+            logger.warn("无法打开模型: '{}'", modelFilename);
             return null;
         }
         
@@ -203,14 +180,16 @@ public class MMDModelGpuSkinning implements IMMDModel {
      * Phase 1（nf.LoadModelPMX/PMD）已在后台线程完成
      */
     public static MMDModelGpuSkinning createFromHandle(long model, String modelDir) {
-        if (nf == null) nf = NativeFunc.GetInst();
+        NativeFunc nf = getNf();
         
         // 初始化 Compute Shader（懒加载，全局共享）
         if (computeShader == null) {
             computeShader = new SkinningComputeShader();
             if (!computeShader.init()) {
                 logger.error("蒙皮 Compute Shader 初始化失败，回退到 CPU 蒙皮");
-                nf.DeleteModel(model);
+                computeShader = null; // 重置，防止后续模型跳过 init 检查
+                // 注意：不删除 model 句柄，由调用者（RenderModeManager）负责管理，
+                // 避免多工厂回退时 use-after-free
                 return null;
             }
         }
@@ -229,10 +208,9 @@ public class MMDModelGpuSkinning implements IMMDModel {
         int[] uvMorphBuffers = null;
         FloatBuffer uvMorphWeightsBuf = null;
         int skinnedUvBuf = 0;
-        FloatBuffer matMorphResultsBuf = null;
         ByteBuffer matMorphResultsByteBuf = null;
         ByteBuffer subMeshDataBufLocal = null;
-        Material lightMapMaterial = null;
+        MMDMaterial lightMapMaterial = null;
         
         try {
             // 初始化 GPU 蒙皮数据
@@ -243,11 +221,10 @@ public class MMDModelGpuSkinning implements IMMDModel {
             int vertexCount = (int) nf.GetVertexCount(model);
             int boneCount = nf.GetBoneCount(model);
             
-            if (boneCount > SkinningComputeShader.MAX_BONES) {
+            if (boneCount > ShaderConstants.MAX_BONES) {
                 logger.warn("模型骨骼数量 ({}) 超过最大支持 ({})，部分骨骼可能无法正确渲染", 
-                    boneCount, SkinningComputeShader.MAX_BONES);
+                    boneCount, ShaderConstants.MAX_BONES);
             }
-            logger.info("GPU 蒙皮模型加载（Compute Shader）: {} 顶点, {} 骨骼", vertexCount, boneCount);
             
             // 创建 VAO 和 VBO
             vao = GL46C.glGenVertexArrays();
@@ -366,26 +343,32 @@ public class MMDModelGpuSkinning implements IMMDModel {
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv2Vbo);
             GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, vertexCount * 8, GL46C.GL_DYNAMIC_DRAW);
             
-            // 材质
-            Material[] mats = new Material[(int) nf.GetMaterialCount(model)];
+            // 材质（记录纹理引用键）
+            List<String> texKeys = new ArrayList<>();
+            MMDMaterial[] mats = new MMDMaterial[(int) nf.GetMaterialCount(model)];
             for (int i = 0; i < mats.length; ++i) {
-                mats[i] = new Material();
+                mats[i] = new MMDMaterial();
                 String texFilename = nf.GetMaterialTex(model, i);
-                if (!texFilename.isEmpty()) {
+                if (texFilename != null && !texFilename.isEmpty()) {
                     MMDTextureManager.Texture mgrTex = MMDTextureManager.GetTexture(texFilename);
                     if (mgrTex != null) {
                         mats[i].tex = mgrTex.tex;
                         mats[i].hasAlpha = mgrTex.hasAlpha;
+                        MMDTextureManager.addRef(texFilename);
+                        texKeys.add(texFilename);
                     }
                 }
             }
             
             // lightMap 材质
-            lightMapMaterial = new Material();
-            MMDTextureManager.Texture mgrTex = MMDTextureManager.GetTexture(modelDir + "/lightMap.png");
+            lightMapMaterial = new MMDMaterial();
+            String lightMapPath = modelDir + "/lightMap.png";
+            MMDTextureManager.Texture mgrTex = MMDTextureManager.GetTexture(lightMapPath);
             if (mgrTex != null) {
                 lightMapMaterial.tex = mgrTex.tex;
                 lightMapMaterial.hasAlpha = mgrTex.hasAlpha;
+                MMDTextureManager.addRef(lightMapPath);
+                texKeys.add(lightMapPath);
             } else {
                 lightMapMaterial.tex = GL46C.glGenTextures();
                 lightMapMaterial.ownsTexture = true;
@@ -428,7 +411,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
             if (morphCount > 0) {
                 morphWeightsBuffer = MemoryUtil.memAllocFloat(morphCount);
                 morphBuffers = SkinningComputeShader.createMorphBuffers(morphCount);
-                logger.info("GPU Morph 初始化: {} 个顶点 Morph", morphCount);
             }
             
             // 初始化 UV Morph 数据
@@ -438,7 +420,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
                 uvMorphWeightsBuf = MemoryUtil.memAllocFloat(uvMorphCnt);
                 uvMorphBuffers = SkinningComputeShader.createUvMorphBuffers(uvMorphCnt);
                 skinnedUvBuf = SkinningComputeShader.createSkinnedUvBuffer(vertexCount);
-                logger.info("GPU UV Morph 初始化: {} 个 UV Morph", uvMorphCnt);
             } else {
                 // 即使没有 UV Morph，也创建蒙皮 UV 输出缓冲区用于 Compute Shader 写入
                 skinnedUvBuf = SkinningComputeShader.createSkinnedUvBuffer(vertexCount);
@@ -448,7 +429,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
             int matMorphCount = nf.GetMaterialMorphResultCount(model);
             if (matMorphCount > 0) {
                 int floatCount = matMorphCount * 56;
-                matMorphResultsBuf = MemoryUtil.memAllocFloat(floatCount);
                 matMorphResultsByteBuf = MemoryUtil.memAlloc(floatCount * 4);
                 matMorphResultsByteBuf.order(ByteOrder.LITTLE_ENDIAN);
             }
@@ -483,6 +463,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
             result.indexType = indexType;
             result.mats = mats;
             result.lightMapMaterial = lightMapMaterial;
+            result.textureKeys = texKeys;
             result.modelViewMatBuff = modelViewMatBuff;
             result.projMatBuff = projMatBuff;
             result.vertexMorphCount = morphCount;
@@ -505,7 +486,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
             }
             // 材质 Morph
             result.materialMorphResultCount = matMorphCount;
-            result.materialMorphResultsBuffer = matMorphResultsBuf;
             result.materialMorphResultsByteBuffer = matMorphResultsByteBuf;
             result.subMeshCount = (int) nf.GetSubMeshCount(model);
             subMeshDataBufLocal = MemoryUtil.memAlloc(result.subMeshCount * 20);
@@ -517,7 +497,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
             nf.SetAutoBlinkEnabled(model, true);
             
             GL46C.glBindVertexArray(0);
-            logger.info("GPU 蒙皮模型创建成功（Compute Shader）: {} 顶点, {} 骨骼", vertexCount, boneCount);
             return result;
             
         } catch (Exception e) {
@@ -562,7 +541,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
             if (projMatBuff != null) MemoryUtil.memFree(projMatBuff);
             if (morphWeightsBuffer != null) MemoryUtil.memFree(morphWeightsBuffer);
             if (uvMorphWeightsBuf != null) MemoryUtil.memFree(uvMorphWeightsBuf);
-            if (matMorphResultsBuf != null) MemoryUtil.memFree(matMorphResultsBuf);
             if (matMorphResultsByteBuf != null) MemoryUtil.memFree(matMorphResultsByteBuf);
             if (subMeshDataBufLocal != null) MemoryUtil.memFree(subMeshDataBufLocal);
             
@@ -571,93 +549,28 @@ public class MMDModelGpuSkinning implements IMMDModel {
     }
     
     @Override
-    public void render(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
-        if (!initialized) return;
-        
-        if (entityIn instanceof LivingEntity && tickDelta != 1.0f) {
-            renderLivingEntity((LivingEntity) entityIn, entityYaw, entityPitch, entityTrans, tickDelta, mat, packedLight, context);
-            return;
-        }
-        Update();
-        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
+    protected boolean isReady() {
+        return initialized;
     }
     
-    private void renderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
-        // 头部角度处理（舞台播放时归零，由 VMD 动画控制）
-        boolean stagePlaying = MMDCameraController.getInstance().isStagePlayingModel(model);
-        if (stagePlaying) {
-            nf.SetHeadAngle(model, 0.0f, 0.0f, 0.0f, context.isWorldScene());
-        } else {
-            float headAngleX = Mth.clamp(entityIn.getXRot(), -50.0f, 50.0f);
-            float headAngleY = (entityYaw - Mth.lerp(tickDelta, entityIn.yHeadRotO, entityIn.yHeadRot)) % 360.0f;
-            if (headAngleY < -180.0f) headAngleY += 360.0f;
-            else if (headAngleY > 180.0f) headAngleY -= 360.0f;
-            headAngleY = Mth.clamp(headAngleY, -80.0f, 80.0f);
-            
-            float pitchRad = headAngleX * ((float) Math.PI / 180F);
-            float yawRad = context.isInventoryScene() ? -headAngleY * ((float) Math.PI / 180F) : headAngleY * ((float) Math.PI / 180F);
-            nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
-        }
-        
-        // 使用公共工具类更新眼球追踪（传递模型名称，使用每模型独立配置）
-        if (!stagePlaying) {
-            EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta, getModelName());
-        }
-        
-        // 传递实体位置和朝向给物理系统（用于人物移动时的惯性效果）
-        // 位置用于计算速度差，朝向用于将世界速度转换到模型局部空间
-        // 注意：模型渲染时缩放了 0.09 倍，所以位置也需要同步缩放
-        final float MODEL_SCALE = 0.09f;
-        float posX = (float)(Mth.lerp(tickDelta, entityIn.xo, entityIn.getX()) * MODEL_SCALE);
-        float posY = (float)(Mth.lerp(tickDelta, entityIn.yo, entityIn.getY()) * MODEL_SCALE);
-        float posZ = (float)(Mth.lerp(tickDelta, entityIn.zo, entityIn.getZ()) * MODEL_SCALE);
-        // 使用实体的身体朝向（不是头部朝向）
-        float bodyYaw = Mth.lerp(tickDelta, entityIn.yBodyRotO, entityIn.yBodyRot) * ((float) Math.PI / 180F);
-        nf.SetModelPositionAndYaw(model, posX, posY, posZ, bodyYaw);
-        
-        Update();
-        RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
+    @Override
+    protected void onUpdate(float deltaTime) {
+        getNf().UpdateAnimationOnly(model, deltaTime);
     }
     
-    private void Update() {
-        long currentTime = System.currentTimeMillis();
-        if (lastUpdateTime < 0) {
-            lastUpdateTime = currentTime;
-            return;
-        }
-        
-        float deltaTime = (currentTime - lastUpdateTime) / 1000.0f;
-        lastUpdateTime = currentTime;
-        
-        // 跳过零或负增量帧，避免高帧率下动画加速
-        if (deltaTime <= 0.0f) {
-            return;
-        }
-        // 限制 deltaTime 上限，防止暂停后物理爆炸
-        if (deltaTime > MAX_DELTA_TIME) {
-            deltaTime = MAX_DELTA_TIME;
-        }
-        
-        nf.UpdateAnimationOnly(model, deltaTime);
-    }
-    
-    private void RenderModel(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack) {
+    @Override
+    protected void doRenderModel(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack, int packedLight) {
         Minecraft MCinstance = Minecraft.getInstance();
         renderModelInternal(entityIn, entityYaw, entityPitch, entityTrans, deliverStack, MCinstance);
     }
     
     private void renderModelInternal(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack, Minecraft MCinstance) {
-        // 光照计算
-        MCinstance.level.updateSkyBrightness();
-        int eyeHeight = (int)(entityIn.getEyeY() - entityIn.getBlockY());
-        int blockLight = entityIn.level().getBrightness(LightLayer.BLOCK, entityIn.blockPosition().above(eyeHeight));
-        int skyLight = entityIn.level().getBrightness(LightLayer.SKY, entityIn.blockPosition().above(eyeHeight));
-        float skyDarken = MCinstance.level.getSkyDarken();
-        
-        float blockLightFactor = blockLight / 15.0f;
-        float skyLightFactor = (skyLight / 15.0f) * ((15.0f - skyDarken) / 15.0f);
-        float lightIntensity = Math.max(blockLightFactor, skyLightFactor);
-        lightIntensity = 0.1f + lightIntensity * 0.9f;
+        // 光照采样
+        LightingHelper.LightData light = LightingHelper.sampleLight(entityIn, MCinstance);
+        float lightIntensity = light.intensity();
+        int blockLight = light.blockLight();
+        int skyLight = light.skyLight();
+        float skyDarken = light.skyDarken();
         
         light0Direction.set(1.0f, 0.75f, 0.0f).normalize();
         light1Direction.set(-1.0f, 0.75f, 0.0f).normalize();
@@ -669,7 +582,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
         deliverStack.mulPose(tempQuat.identity().rotateY(-yawRad));
         deliverStack.mulPose(tempQuat.identity().rotateX(entityPitch * ((float) Math.PI / 180F)));
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
-        float baseScale = 0.09f * com.shiroha.mmdskin.config.ModelConfigManager.getConfig(getModelName()).modelScale;
+        float baseScale = getModelScale();
         deliverStack.scale(baseScale, baseScale, baseScale);
         
         uploadBoneMatrices();
@@ -684,17 +597,15 @@ public class MMDModelGpuSkinning implements IMMDModel {
         }
         
         // Compute Shader 蒙皮（含 UV Morph）
-        computeShader.dispatch(
+        computeShader.dispatch(new SkinningComputeShader.DispatchParams(
             positionBufferObject, normalBufferObject,
-            boneIndicesBufferObject, boneWeightsBufferObject,
-            skinnedPositionsBuffer, skinnedNormalsBuffer,
+            boneIndicesBufferObject, boneWeightsBufferObject, uv0BufferObject,
+            skinnedPositionsBuffer, skinnedNormalsBuffer, skinnedUvBuffer,
             boneMatrixSSBO,
-            morphOffsetsSSBO, morphWeightsSSBO,
-            vertexCount, vertexMorphCount,
-            uv0BufferObject,
-            uvMorphOffsetsSSBO, uvMorphWeightsSSBO,
-            skinnedUvBuffer, uvMorphCount
-        );
+            morphOffsetsSSBO, morphWeightsSSBO, vertexMorphCount,
+            uvMorphOffsetsSSBO, uvMorphWeightsSSBO, uvMorphCount,
+            vertexCount
+        ));
         
         // G3 优化：批量获取所有子网格元数据（1 次 JNI 替代 ~180 次/帧）
         subMeshDataBuf.clear();
@@ -1126,33 +1037,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
         }
     }
     
-    /**
-     * 从 Rust 端获取材质 Morph 结果
-     */
-    private void fetchMaterialMorphResults() {
-        if (materialMorphResultCount <= 0 || materialMorphResultsBuffer == null) return;
-        
-        materialMorphResultsByteBuffer.clear();
-        nf.CopyMaterialMorphResultsToBuffer(model, materialMorphResultsByteBuffer);
-        materialMorphResultsBuffer.clear();
-        materialMorphResultsByteBuffer.position(0);
-        materialMorphResultsBuffer.put(materialMorphResultsByteBuffer.asFloatBuffer());
-        materialMorphResultsBuffer.flip();
-    }
-    
-    /**
-     * 计算材质经 Morph 变形后的有效 alpha
-     * 布局：每材质 56 float = mul(28) + add(28)，diffuse.w 在各组偏移 3
-     * 计算：effective = baseAlpha * mul + add
-     */
-    private float getEffectiveMaterialAlpha(int materialIndex, float baseAlpha) {
-        if (materialMorphResultsBuffer == null || materialIndex >= materialMorphResultCount) return baseAlpha;
-        int mulOffset = materialIndex * 56 + 3;
-        int addOffset = materialIndex * 56 + 28 + 3;
-        float mulAlpha = (mulOffset < materialMorphResultsBuffer.capacity()) ? materialMorphResultsBuffer.get(mulOffset) : 1.0f;
-        float addAlpha = (addOffset < materialMorphResultsBuffer.capacity()) ? materialMorphResultsBuffer.get(addOffset) : 0.0f;
-        return baseAlpha * mulAlpha + addAlpha;
-    }
     
     /**
      * 更新着色器属性位置（基于当前绑定的着色器程序）
@@ -1178,105 +1062,93 @@ public class MMDModelGpuSkinning implements IMMDModel {
         I_colorLocation = GlStateManager._glGetAttribLocation(program, "iris_Color");
     }
     
-    /**
-     * 设置 Minecraft ShaderInstance 的标准 Uniform（模型视图矩阵、投影矩阵、光照等）
-     */
     private void setUniforms(ShaderInstance shader, PoseStack deliverStack) {
-        if (shader.MODEL_VIEW_MATRIX != null)
-            shader.MODEL_VIEW_MATRIX.set(deliverStack.last().pose());
-        
-        if (shader.PROJECTION_MATRIX != null)
-            shader.PROJECTION_MATRIX.set(RenderSystem.getProjectionMatrix());
-        
-        if (shader.INVERSE_VIEW_ROTATION_MATRIX != null)
-            shader.INVERSE_VIEW_ROTATION_MATRIX.set(RenderSystem.getInverseViewRotationMatrix());
-        
-        if (shader.COLOR_MODULATOR != null)
-            shader.COLOR_MODULATOR.set(RenderSystem.getShaderColor());
-        
-        if (shader.LIGHT0_DIRECTION != null)
-            shader.LIGHT0_DIRECTION.set(light0Direction);
-        
-        if (shader.LIGHT1_DIRECTION != null)
-            shader.LIGHT1_DIRECTION.set(light1Direction);
-        
-        if (shader.FOG_START != null)
-            shader.FOG_START.set(RenderSystem.getShaderFogStart());
-        
-        if (shader.FOG_END != null)
-            shader.FOG_END.set(RenderSystem.getShaderFogEnd());
-        
-        if (shader.FOG_COLOR != null)
-            shader.FOG_COLOR.set(RenderSystem.getShaderFogColor());
-        
-        if (shader.FOG_SHAPE != null)
-            shader.FOG_SHAPE.set(RenderSystem.getShaderFogShape().getIndex());
-        
-        if (shader.TEXTURE_MATRIX != null)
-            shader.TEXTURE_MATRIX.set(RenderSystem.getTextureMatrix());
-        
-        if (shader.GAME_TIME != null)
-            shader.GAME_TIME.set(RenderSystem.getShaderGameTime());
-        
-        if (shader.SCREEN_SIZE != null) {
-            Window window = Minecraft.getInstance().getWindow();
-            shader.SCREEN_SIZE.set((float) window.getScreenWidth(), (float) window.getScreenHeight());
+        setupShaderUniforms(shader, deliverStack, light0Direction, light1Direction, lightMapMaterial.tex);
+    }
+    
+    @Override
+    public long getVramUsage() {
+        if (!initialized) return 0;
+        NativeFunc nf = getNf();
+        long total = 0;
+        int indexCount = (int) nf.GetIndexCount(model);
+        // IBO
+        total += (long) indexCount * indexElementSize;
+        // pos + normal + uv0 VBO（静态输入）
+        total += (long) vertexCount * 12 * 2;
+        total += (long) vertexCount * 8;
+        // boneIdx + boneWgt VBO
+        total += (long) vertexCount * 16 * 2;
+        // color + uv1 + uv2 VBO
+        total += (long) vertexCount * 16;
+        total += (long) vertexCount * 8 * 2;
+        // Compute Shader 输出 SSBO（skinned pos + skinned nor）
+        total += (long) vertexCount * 12 * 2;
+        // Bone matrix SSBO（固定分配 MAX_BONES 大小）
+        total += (long) ShaderConstants.MAX_BONES * 64;
+        // Morph SSBOs（使用 JNI 精确查询实际分配大小）
+        if (vertexMorphCount > 0) {
+            total += nf.GetGpuMorphOffsetsSize(model); // offsets
+            total += (long) vertexMorphCount * 4;       // weights
         }
-        if (shader.LINE_WIDTH != null)
-            shader.LINE_WIDTH.set(RenderSystem.getShaderLineWidth());
-        
-        shader.setSampler("Sampler1", lightMapMaterial.tex);
-        shader.setSampler("Sampler2", lightMapMaterial.tex);
-        
-        // Iris 兼容：ExtendedShader.apply() 从 RenderSystem.getShaderTexture() 读取纹理，
-        // 而非 shader.setSampler() 设置的值，需要同步设置
-        RenderSystem.setShaderTexture(1, lightMapMaterial.tex);
-        RenderSystem.setShaderTexture(2, lightMapMaterial.tex);
-    }
-    
-    @Override
-    public void ChangeAnim(long anim, long layer) {
-        nf.ChangeModelAnim(model, anim, layer);
-    }
-    
-    @Override
-    public void TransitionAnim(long anim, long layer, float transitionTime) {
-        nf.TransitionLayerTo(model, layer, anim, transitionTime);
-    }
-    
-    @Override
-    public void ResetPhysics() {
-        nf.ResetModelPhysics(model);
-    }
-    
-    @Override
-    public long GetModelLong() {
-        return model;
-    }
-    
-    @Override
-    public String GetModelDir() {
-        return modelDir;
-    }
-    
-    @Override
-    public String getModelName() {
-        if (cachedModelName == null) {
-            cachedModelName = IMMDModel.super.getModelName();
+        // UV Morph SSBOs
+        if (uvMorphCount > 0) {
+            total += nf.GetGpuUvMorphOffsetsSize(model); // offsets
+            total += (long) uvMorphCount * 4;             // weights
         }
-        return cachedModelName;
+        // Skinned UV buffer（无论是否有 UV Morph 都会分配）
+        if (skinnedUvBuffer > 0) {
+            total += (long) vertexCount * 8;
+        }
+        return total;
+    }
+    
+    @Override
+    public long getRamUsage() {
+        if (!initialized) return 0;
+        long rustRam = getNf().GetModelMemoryUsage(model);
+        // Java 侧堆外内存：6 个逐顶点 ByteBuffer
+        long javaRam = (long) vertexCount * 64; // pos(12)+nor(12)+uv0(8)+color(16)+uv1(8)+uv2(8)
+        // MemoryUtil 预分配缓冲区
+        javaRam += 128; // modelViewMat(64)+projMat(64)
+        // 骨骼矩阵缓冲区（FloatBuffer + ByteBuffer）
+        if (boneMatricesBuffer != null) {
+            javaRam += (long) boneMatricesBuffer.capacity() * 4;
+        }
+        if (boneMatricesByteBuffer != null) {
+            javaRam += boneMatricesByteBuffer.capacity();
+        }
+        // Morph 权重缓冲区
+        if (morphWeightsBuffer != null) {
+            javaRam += (long) morphWeightsBuffer.capacity() * 4;
+        }
+        if (morphWeightsByteBuffer != null) {
+            javaRam += morphWeightsByteBuffer.capacity();
+        }
+        // UV Morph 权重缓冲区
+        if (uvMorphWeightsBuffer != null) {
+            javaRam += (long) uvMorphWeightsBuffer.capacity() * 4;
+        }
+        if (uvMorphWeightsByteBuffer != null) {
+            javaRam += uvMorphWeightsByteBuffer.capacity();
+        }
+        // 材质 Morph 缓冲区
+        if (materialMorphResultCount > 0) {
+            javaRam += (long) materialMorphResultCount * 56 * 4 * 2;
+        }
+        // 子网格元数据缓冲区
+        if (subMeshDataBuf != null) {
+            javaRam += subMeshDataBuf.capacity();
+        }
+        return rustRam + javaRam;
     }
     
     @Override
     public void dispose() {
-        // 防护：避免 double-free 和 use-after-free
         if (!initialized) return;
         initialized = false;
-        
-        if (model != 0) {
-            nf.DeleteModel(model);
-            model = 0;
-        }
+        releaseTextures();
+        disposeModelHandle();
         
         // 释放 OpenGL 资源
         GL46C.glDeleteVertexArrays(vertexArrayObject);
@@ -1299,56 +1171,26 @@ public class MMDModelGpuSkinning implements IMMDModel {
         if (uvMorphOffsetsSSBO > 0) GL46C.glDeleteBuffers(uvMorphOffsetsSSBO);
         if (uvMorphWeightsSSBO > 0) GL46C.glDeleteBuffers(uvMorphWeightsSSBO);
         if (skinnedUvBuffer > 0) GL46C.glDeleteBuffers(skinnedUvBuffer);
-        boneMatrixSSBO = 0;
-        morphOffsetsSSBO = 0;
-        morphWeightsSSBO = 0;
-        uvMorphOffsetsSSBO = 0;
-        uvMorphWeightsSSBO = 0;
-        skinnedUvBuffer = 0;
+        boneMatrixSSBO = 0; morphOffsetsSSBO = 0; morphWeightsSSBO = 0;
+        uvMorphOffsetsSSBO = 0; uvMorphWeightsSSBO = 0; skinnedUvBuffer = 0;
         
-        // 释放自建的 lightMap 纹理（来自 MMDTextureManager 的不在此删除）
+        // 释放自建的 lightMap 纹理
         if (lightMapMaterial != null && lightMapMaterial.ownsTexture && lightMapMaterial.tex > 0) {
             GL46C.glDeleteTextures(lightMapMaterial.tex);
             lightMapMaterial.tex = 0;
         }
         
         // 释放 MemoryUtil 分配的缓冲区
-        if (boneMatricesBuffer != null) {
-            MemoryUtil.memFree(boneMatricesBuffer);
-            boneMatricesBuffer = null;
-        }
-        if (boneMatricesByteBuffer != null) {
-            MemoryUtil.memFree(boneMatricesByteBuffer);
-            boneMatricesByteBuffer = null;
-        }
-        if (morphWeightsBuffer != null) {
-            MemoryUtil.memFree(morphWeightsBuffer);
-            morphWeightsBuffer = null;
-        }
-        if (uvMorphWeightsBuffer != null) {
-            MemoryUtil.memFree(uvMorphWeightsBuffer);
-            uvMorphWeightsBuffer = null;
-        }
-        if (materialMorphResultsBuffer != null) {
-            MemoryUtil.memFree(materialMorphResultsBuffer);
-            materialMorphResultsBuffer = null;
-        }
-        if (materialMorphResultsByteBuffer != null) {
-            MemoryUtil.memFree(materialMorphResultsByteBuffer);
-            materialMorphResultsByteBuffer = null;
-        }
-        if (modelViewMatBuff != null) {
-            MemoryUtil.memFree(modelViewMatBuff);
-            modelViewMatBuff = null;
-        }
-        if (projMatBuff != null) {
-            MemoryUtil.memFree(projMatBuff);
-            projMatBuff = null;
-        }
-        if (subMeshDataBuf != null) {
-            MemoryUtil.memFree(subMeshDataBuf);
-            subMeshDataBuf = null;
-        }
+        disposeMaterialMorphBuffers();
+        if (boneMatricesBuffer != null) { MemoryUtil.memFree(boneMatricesBuffer); boneMatricesBuffer = null; }
+        if (boneMatricesByteBuffer != null) { MemoryUtil.memFree(boneMatricesByteBuffer); boneMatricesByteBuffer = null; }
+        if (morphWeightsBuffer != null) { MemoryUtil.memFree(morphWeightsBuffer); morphWeightsBuffer = null; }
+        morphWeightsByteBuffer = null;
+        if (uvMorphWeightsBuffer != null) { MemoryUtil.memFree(uvMorphWeightsBuffer); uvMorphWeightsBuffer = null; }
+        uvMorphWeightsByteBuffer = null;
+        if (modelViewMatBuff != null) { MemoryUtil.memFree(modelViewMatBuff); modelViewMatBuff = null; }
+        if (projMatBuff != null) { MemoryUtil.memFree(projMatBuff); projMatBuff = null; }
+        if (subMeshDataBuf != null) { MemoryUtil.memFree(subMeshDataBuf); subMeshDataBuf = null; }
     }
     
     /** @deprecated 使用 {@link #dispose()} 替代 */
@@ -1357,10 +1199,4 @@ public class MMDModelGpuSkinning implements IMMDModel {
         if (model != null) model.dispose();
     }
     
-    private static class Material {
-        int tex = 0;
-        @SuppressWarnings("unused")
-        boolean hasAlpha = false;
-        boolean ownsTexture = false;
-    }
 }

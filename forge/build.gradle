@@ -20,14 +20,18 @@ loom {
             client()
             name "Forge Client"
             runDir "run/client"
-            vmArgs "-Dneoforge.enabledGameTestNamespace=template-mod"
             programArgs "--username", "Player1"
+        }
+        client2 {
+            client()
+            name "Forge Client 2"
+            runDir "run/client2"
+            programArgs "--username", "Player2"
         }
         server {
             server()
             name "Forge Server"
             runDir "run/server"
-            vmArgs "-Dneoforge.enabledGameTestNamespace=template-mod"
         }
     }
 }
@@ -110,9 +114,9 @@ dependencies {
 
     // JLayer - MP3 解码器（舞台模式音频播放）
     // common 配置使其在 dev 运行时可用（developmentForge extends common）
-    // shadowCommon 配置使其打包进生产 JAR
+    // include 配置使其以 Jar-in-Jar 内嵌到 mod JAR
     common("javazoom:jlayer:1.0.1") { transitive = false }
-    shadowCommon("javazoom:jlayer:1.0.1")
+    include("javazoom:jlayer:1.0.1")
 
     // Forge 平台
     forge "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
@@ -124,6 +128,9 @@ dependencies {
     // TouhouLittleMaid - 可选依赖，用于联动
     modCompileOnly("maven.modrinth:touhou-little-maid:1.5.0-forge+mc1.20.1")
     modLocalRuntime("maven.modrinth:touhou-little-maid:1.5.0-forge+mc1.20.1")
+    
+    // mc-vr-api - Vivecraft VR API（软依赖，运行时可选）
+    modCompileOnly("maven.modrinth:mc-vr-api:${project.mc_vr_api_version}-forge,1.20.1")
     
     // Cloth Config API - 配置界面
     modApi("me.shedaniel.cloth:cloth-config-forge:11.1.136")

@@ -60,8 +60,11 @@ public class ModelSelectorConfig {
                     if (data == null || data.playerModels == null) {
                         throw new IOException("配置数据无效");
                     }
+                    // 兼容旧配置：quickModelSlots 可能不存在
+                    if (data.quickModelSlots == null) {
+                        data.quickModelSlots = new ConcurrentHashMap<>();
+                    }
                     
-                    logger.info("模型选择配置加载成功 ({} 个玩家)", data.playerModels.size());
                     return;
                 } catch (Exception e) {
                     retryCount++;
@@ -169,7 +172,6 @@ public class ModelSelectorConfig {
         
         data.playerModels.put(playerName, modelName);
         save();
-        logger.info("玩家 {} 选择模型: {}", playerName, modelName);
         
         // 广播到服务器（联机同步）
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
@@ -184,7 +186,6 @@ public class ModelSelectorConfig {
     public void removePlayerModel(String playerName) {
         if (data.playerModels.remove(playerName) != null) {
             save();
-            logger.info("已移除玩家 {} 的模型选择", playerName);
         }
     }
     
@@ -195,11 +196,57 @@ public class ModelSelectorConfig {
         return new ConcurrentHashMap<>(data.playerModels);
     }
     
+    // ==================== 快捷模型槽位 ====================
+    
+    /** 快捷模型槽位数量 */
+    public static final int QUICK_SLOT_COUNT = 4;
+    
+    /**
+     * 获取指定槽位绑定的模型名
+     * @param slot 槽位索引（0-3）
+     * @return 模型名，未绑定返回 null
+     */
+    public String getQuickSlotModel(int slot) {
+        if (slot < 0 || slot >= QUICK_SLOT_COUNT) return null;
+        String key = String.valueOf(slot);
+        return data.quickModelSlots.get(key);
+    }
+    
+    /**
+     * 设置指定槽位绑定的模型名
+     * @param slot 槽位索引（0-3）
+     * @param modelName 模型名，null 表示清除
+     */
+    public void setQuickSlotModel(int slot, String modelName) {
+        if (slot < 0 || slot >= QUICK_SLOT_COUNT) return;
+        String key = String.valueOf(slot);
+        if (modelName == null || modelName.isEmpty()) {
+            data.quickModelSlots.remove(key);
+        } else {
+            data.quickModelSlots.put(key, modelName);
+        }
+        save();
+    }
+    
+    /**
+     * 查找模型绑定在哪个快捷槽位（用于 UI 显示）
+     * @return 槽位索引（0-3），未绑定返回 -1
+     */
+    public int getQuickSlotForModel(String modelName) {
+        if (modelName == null) return -1;
+        for (int i = 0; i < QUICK_SLOT_COUNT; i++) {
+            String bound = data.quickModelSlots.get(String.valueOf(i));
+            if (modelName.equals(bound)) return i;
+        }
+        return -1;
+    }
+    
     /**
      * 配置数据类（线程安全）
      */
     private static class ConfigData {
-        // 使用 ConcurrentHashMap 保证线程安全
         Map<String, String> playerModels = new ConcurrentHashMap<>();
+        // 快捷模型槽位：key="0"-"3", value=模型名
+        Map<String, String> quickModelSlots = new ConcurrentHashMap<>();
     }
 }

@@ -14,12 +14,12 @@ import java.lang.reflect.Method;
 public class IrisCompat {
     private static final Logger logger = LogManager.getLogger();
     
-    private static Boolean irisPresent = null;
+    private static volatile Boolean irisPresent = null;
     private static Method isShaderPackInUseMethod = null;
     private static Object irisApiInstance = null;
     
     // 阴影渲染状态检测（反射）
-    private static boolean shadowStateDetected = false;
+    private static volatile boolean shadowStateDetected = false;
     private static Method areShadowsBeingRenderedMethod = null;
     
     /**
@@ -50,10 +50,8 @@ public class IrisCompat {
             irisApiInstance = getInstanceMethod.invoke(null);
             isShaderPackInUseMethod = irisApiClass.getMethod("isShaderPackInUse");
             irisPresent = true;
-            logger.info("[IrisCompat] 检测到 Iris API，已启用兼容模式");
         } catch (ClassNotFoundException e) {
             irisPresent = false;
-            logger.info("[IrisCompat] 未检测到 Iris，跳过兼容");
         } catch (Exception e) {
             irisPresent = false;
             logger.warn("[IrisCompat] Iris API 检测异常", e);
@@ -95,11 +93,9 @@ public class IrisCompat {
             try {
                 Class<?> clazz = Class.forName(className);
                 areShadowsBeingRenderedMethod = clazz.getMethod("areShadowsCurrentlyBeingRendered");
-                logger.info("[IrisCompat] 检测到阴影渲染状态: {}", className);
                 return;
             } catch (Exception ignored) {}
         }
-        logger.debug("[IrisCompat] 未找到阴影渲染状态类（非 Iris 环境或版本不兼容）");
     }
     
     /**

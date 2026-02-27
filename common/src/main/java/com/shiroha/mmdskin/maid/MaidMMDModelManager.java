@@ -7,6 +7,7 @@ import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,7 +31,6 @@ public class MaidMMDModelManager {
      * 初始化管理器
      */
     public static void init() {
-        logger.info("女仆 MMD 模型管理器初始化完成");
     }
     
     /**
@@ -57,7 +57,6 @@ public class MaidMMDModelManager {
         }
         
         maidModelBindings.put(maidUUID, modelName);
-        logger.info("女仆 {} 绑定模型: {}", maidUUID, modelName);
     }
     
     /**
@@ -68,7 +67,6 @@ public class MaidMMDModelManager {
     public static void unbindModel(UUID maidUUID) {
         maidModelBindings.remove(maidUUID);
         loadedModels.remove(maidUUID);
-        logger.info("女仆 {} 解除模型绑定", maidUUID);
     }
     
     /**
@@ -103,23 +101,22 @@ public class MaidMMDModelManager {
             return null;
         }
         
-        // 检查是否已加载
+        // 检查是否已加载且句柄仍有效
         MMDModelManager.Model model = loadedModels.get(maidUUID);
         if (model != null) {
-            return model;
+            if (model.model != null && model.model.getModelHandle() != 0) {
+                return model;
+            }
+            // 句柄已失效（被 ModelCache GC 回收），移除悬空引用
+            loadedModels.remove(maidUUID);
+            logger.warn("女仆 {} 模型句柄已失效，将重新加载", maidUUID);
         }
         
-        // 懒加载模型
+        // 懒加载模型（createModelWrapper 已设置 idle 动画，无需重复设置）
         String cacheKey = "maid_" + maidUUID.toString();
         model = MMDModelManager.GetModel(modelName, cacheKey);
         if (model != null) {
             loadedModels.put(maidUUID, model);
-            
-            // 设置默认动画
-            IMMDModel mmdModel = model.model;
-            mmdModel.ChangeAnim(MMDAnimManager.GetAnimModel(mmdModel, "idle"), 0);
-            
-            logger.info("女仆 {} 模型加载成功: {}", maidUUID, modelName);
         }
         
         return model;
@@ -141,11 +138,19 @@ public class MaidMMDModelManager {
         IMMDModel mmdModel = model.model;
         long anim = MMDAnimManager.GetAnimModel(mmdModel, animId);
         if (anim != 0) {
-            mmdModel.TransitionAnim(anim, 0, 0.25f);
-            logger.info("女仆 {} 播放动画: {}", maidUUID, animId);
+            mmdModel.transitionAnim(anim, 0, 0.25f);
         } else {
             logger.warn("女仆 {} 动画未找到: {}", maidUUID, animId);
         }
+    }
+    
+    /**
+     * 模型被 dispose 时的回调，移除 loadedModels 中所有持有该模型的条目
+     * 防止悬空引用（访问已释放的 GL 资源）
+     */
+    public static void onModelDisposed(MMDModelManager.Model disposedModel) {
+        if (disposedModel == null) return;
+        loadedModels.entrySet().removeIf(entry -> entry.getValue() == disposedModel);
     }
     
     /**
@@ -157,7 +162,6 @@ public class MaidMMDModelManager {
     public static void invalidateLoadedModels() {
         if (!loadedModels.isEmpty()) {
             loadedModels.clear();
-            logger.info("女仆已加载模型缓存已失效，将在下次渲染时重新加载");
         }
     }
     
@@ -167,7 +171,6 @@ public class MaidMMDModelManager {
     public static void clearAll() {
         maidModelBindings.clear();
         loadedModels.clear();
-        logger.info("女仆模型绑定已清空");
     }
     
     /**
@@ -175,5 +178,12 @@ public class MaidMMDModelManager {
      */
     public static int getBindingCount() {
         return maidModelBindings.size();
+    }
+    
+    /**
+     * 获取所有已加载的女仆模型快照（供 PerformanceHud 使用）
+     */
+    public static Collection<MMDModelManager.Model> getLoadedMaidModels() {
+        return loadedModels.values();
     }
 }

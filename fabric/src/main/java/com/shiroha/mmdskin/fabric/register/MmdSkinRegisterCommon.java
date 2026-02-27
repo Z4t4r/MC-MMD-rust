@@ -1,5 +1,8 @@
 package com.shiroha.mmdskin.fabric.register;
 
+import com.shiroha.mmdskin.ui.network.NetworkOpCode;
+import com.shiroha.mmdskin.ui.network.ServerModelRegistry;
+
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -7,46 +10,91 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.UUID;
+
+/**
+ * Fabric 服务端网络注册
+ */
 public class MmdSkinRegisterCommon {
+    private static final Logger logger = LogManager.getLogger();
+
     public static ResourceLocation SKIN_C2S = new ResourceLocation("3d-skin", "network_c2s");
     public static ResourceLocation SKIN_S2C = new ResourceLocation("3d-skin", "network_s2c");
 
     public static void Register() {
         ServerPlayNetworking.registerGlobalReceiver(SKIN_C2S, (server, player, handler, buf, responseSender) -> {
-            // 读取 opCode 以决定如何转发
             int opCode = buf.readInt();
-            java.util.UUID playerUUID = buf.readUUID();
-            
-            // 根据 opCode 读取不同格式的数据
-            FriendlyByteBuf packetbuf = PacketByteBufs.create();
-            packetbuf.writeInt(opCode);
-            packetbuf.writeUUID(playerUUID);
-            
-            if (opCode == 1 || opCode == 3 || opCode == 6 || opCode == 7 || opCode == 8) {
-                // opCode 1: 动作执行, opCode 3: 模型选择同步, opCode 6: 表情同步, opCode 7/8: 舞台开始/结束 - 字符串参数
-                String data = buf.readUtf();
-                packetbuf.writeUtf(data);
-            } else if (opCode == 4 || opCode == 5) {
-                // opCode 4/5: 女仆模型/动作 - entityId + 字符串
-                int entityId = buf.readInt();
-                String data = buf.readUtf();
-                packetbuf.writeInt(entityId);
-                packetbuf.writeUtf(data);
-            } else {
-                // 其他: 整数参数
-                int arg0 = buf.readInt();
-                packetbuf.writeInt(arg0);
+            UUID claimedUUID = buf.readUUID();
+
+            // 鉴权：客户端声称的 UUID 必须与实际发送者一致
+            UUID realUUID = player.getUUID();
+            if (!realUUID.equals(claimedUUID)) {
+                logger.warn("UUID 不匹配，丢弃数据包: claimed={}, real={}", claimedUUID, realUUID);
+                return;
             }
-            
+
+            // 读取载荷
+            String strData = null;
+            int entityId = 0;
+            int intArg = 0;
+
+            if (NetworkOpCode.isStringPayload(opCode)) {
+                strData = buf.readUtf();
+            } else if (NetworkOpCode.isEntityStringPayload(opCode)) {
+                entityId = buf.readInt();
+                strData = buf.readUtf();
+            } else {
+                intArg = buf.readInt();
+            }
+
+            // opCode 3（模型选择）时更新服务端注册表
+            if (opCode == NetworkOpCode.MODEL_SELECT && strData != null) {
+                ServerModelRegistry.updateModel(realUUID, strData);
+            }
+
+            // opCode 10：回传所有已注册模型给请求者，不转发
+            if (opCode == NetworkOpCode.REQUEST_ALL_MODELS) {
+                server.execute(() -> {
+                    ServerModelRegistry.sendAllTo((modelOwnerUUID, modelName) -> {
+                        FriendlyByteBuf replyBuf = PacketByteBufs.create();
+                        replyBuf.writeInt(NetworkOpCode.MODEL_SELECT);
+                        replyBuf.writeUUID(modelOwnerUUID);
+                        replyBuf.writeUtf(modelName);
+                        ServerPlayNetworking.send(player, SKIN_S2C, replyBuf);
+                    });
+                });
+                return;
+            }
+
+            // 构建转发包
+            final FriendlyByteBuf packetBuf = PacketByteBufs.create();
+            packetBuf.writeInt(opCode);
+            packetBuf.writeUUID(realUUID);
+
+            if (NetworkOpCode.isStringPayload(opCode)) {
+                packetBuf.writeUtf(strData);
+            } else if (NetworkOpCode.isEntityStringPayload(opCode)) {
+                packetBuf.writeInt(entityId);
+                packetBuf.writeUtf(strData);
+            } else {
+                packetBuf.writeInt(intArg);
+            }
+
             server.execute(() -> {
-                for(ServerPlayer serverPlayer : PlayerLookup.all(server)){
-                    if(!serverPlayer.equals(player)){
-                        // 为每个玩家创建新的缓冲区（避免重复发送问题）
-                        FriendlyByteBuf copyBuf = PacketByteBufs.copy(packetbuf);
-                        ServerPlayNetworking.send(serverPlayer, MmdSkinRegisterCommon.SKIN_S2C, copyBuf);
+                for (ServerPlayer serverPlayer : PlayerLookup.all(server)) {
+                    if (!serverPlayer.equals(player)) {
+                        FriendlyByteBuf copyBuf = PacketByteBufs.copy(packetBuf);
+                        ServerPlayNetworking.send(serverPlayer, SKIN_S2C, copyBuf);
                     }
                 }
             });
         });
+
+        // 玩家离线时清理服务端注册表
+        net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.DISCONNECT.register(
+                (handler, server) -> ServerModelRegistry.onPlayerLeave(handler.getPlayer().getUUID()));
     }
 }

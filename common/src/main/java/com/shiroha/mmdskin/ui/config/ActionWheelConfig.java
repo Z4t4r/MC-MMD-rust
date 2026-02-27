@@ -67,8 +67,6 @@ public class ActionWheelConfig {
                 anim.getFormattedSize()
             ));
         }
-        
-        LOGGER.info("共扫描到 {} 个动画", availableActions.size());
     }
 
     /**
@@ -79,7 +77,6 @@ public class ActionWheelConfig {
         try {
             File configFile = PathConstants.getActionWheelConfigFile();
             if (!configFile.exists()) {
-                LOGGER.info("动作轮盘配置文件不存在，使用默认配置");
                 loadDefaultDisplayedActions();
                 save();
                 return;
@@ -92,7 +89,6 @@ public class ActionWheelConfig {
                     this.displayedActions = data.displayedActions;
                     // 过滤掉不存在的动作
                     filterValidActions();
-                    LOGGER.info("成功加载动作轮盘配置，显示 {} 个动作", displayedActions.size());
                 } else {
                     loadDefaultDisplayedActions();
                 }
@@ -109,7 +105,6 @@ public class ActionWheelConfig {
     private void loadDefaultDisplayedActions() {
         displayedActions.clear();
         displayedActions.addAll(availableActions);
-        LOGGER.info("加载默认动作配置，共 {} 个动作", displayedActions.size());
     }
 
     /**
@@ -137,7 +132,6 @@ public class ActionWheelConfig {
                 ConfigData data = new ConfigData();
                 data.displayedActions = this.displayedActions;
                 gson.toJson(data, writer);
-                LOGGER.info("动作轮盘配置已保存");
             }
         } catch (Exception e) {
             LOGGER.error("保存动作轮盘配置失败", e);

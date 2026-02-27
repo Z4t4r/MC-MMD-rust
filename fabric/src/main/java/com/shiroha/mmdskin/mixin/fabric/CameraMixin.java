@@ -1,5 +1,7 @@
 package com.shiroha.mmdskin.mixin.fabric;
 
+import com.shiroha.mmdskin.config.ConfigManager;
+import com.shiroha.mmdskin.fabric.YsmCompat;
 import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
 import com.shiroha.mmdskin.renderer.core.FirstPersonManager;
 import net.minecraft.client.Camera;
@@ -7,6 +9,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -32,32 +35,47 @@ public abstract class CameraMixin {
         MMDCameraController controller = MMDCameraController.getInstance();
         if (controller.isActive()) {
             controller.checkEscapeKey();
-            if (!controller.isActive()) return;
-            controller.updateCamera();
-            if (!controller.isActive()) return;
-            setPosition(controller.getCameraX(), controller.getCameraY(), controller.getCameraZ());
-            setRotation(controller.getCameraYaw(), controller.getCameraPitch());
-            return;
-        }
-        
-        // 第一人称 MMD 模型相机：跟踪眼睛骨骼动画位置
-        if (FirstPersonManager.isActive() && FirstPersonManager.isEyeBoneValid() && !detached) {
-            float[] eyeOffset = new float[3];
-            FirstPersonManager.getEyeWorldOffset(eyeOffset);
-            {
-                double px = Mth.lerp(partialTick, entity.xo, entity.getX());
-                double py = Mth.lerp(partialTick, entity.yo, entity.getY());
-                double pz = Mth.lerp(partialTick, entity.zo, entity.getZ());
-                // 模型局部 X/Z 偏移需随玩家身体朝向旋转（与 PlayerRendererMixin 中 bodyYaw 一致）
-                float bodyYaw = (entity instanceof LivingEntity le)
-                    ? Mth.rotLerp(partialTick, le.yBodyRotO, le.yBodyRot)
-                    : Mth.rotLerp(partialTick, entity.yRotO, entity.getYRot());
-                float yawRad = (float) Math.toRadians(bodyYaw);
-                double sinYaw = Mth.sin(yawRad);
-                double cosYaw = Mth.cos(yawRad);
-                double worldOffX = eyeOffset[0] * cosYaw - eyeOffset[2] * sinYaw;
-                double worldOffZ = eyeOffset[0] * sinYaw + eyeOffset[2] * cosYaw;
-                setPosition(px + worldOffX, py + eyeOffset[1], pz + worldOffZ);
+            if (controller.isActive()) {
+                controller.updateCamera();
+                if (controller.isActive()) {
+                    this.setPosition(controller.getCameraX(), controller.getCameraY(), controller.getCameraZ());
+                    this.setRotation(controller.getCameraYaw(), controller.getCameraPitch());
+                }
+            }
+        } else {
+            // 第一人称 MMD 模型相机：跟踪眼睛骨骼动画位置
+            if (FirstPersonManager.isActive() && FirstPersonManager.isEyeBoneValid() && !detached) {
+                // YSM 兼容：若 YSM 激活且未阻止自身模型渲染，则让 YSM 控制相机
+                if (entity instanceof LivingEntity living) {
+                    boolean ysmActive = YsmCompat.isYsmModelActive(living);
+                    boolean ysmDisableSelf = YsmCompat.isDisableSelfModel();
+                    if (ysmActive && !ysmDisableSelf) {
+                        return;
+                    }
+                }
+
+                Vec3 boneEyePos = FirstPersonManager.getRotatedEyePosition(entity, partialTick);
+                float originalYaw = entity.getViewYRot(partialTick);
+                float originalPitch = entity.getViewXRot(partialTick);
+                float lookPitchRad = originalPitch * ((float) Math.PI / 180F);
+                float lookYawRad = originalYaw * ((float) Math.PI / 180F);
+                float cosLookPitch = Mth.cos(lookPitchRad);
+                float sinLookPitch = Mth.sin(lookPitchRad);
+                float cosLookYaw = Mth.cos(lookYawRad);
+                float sinLookYaw = Mth.sin(lookYawRad);
+
+                double forwardOffset = ConfigManager.getFirstPersonCameraForwardOffset();
+                double verticalOffset = ConfigManager.getFirstPersonCameraVerticalOffset();
+
+                double targetX = boneEyePos.x + (double) (sinLookYaw * cosLookPitch * (float) (-forwardOffset));
+                double targetY = boneEyePos.y + (double) (sinLookPitch * (float) (-forwardOffset)) + verticalOffset;
+                double targetZ = boneEyePos.z + (double) (cosLookYaw * cosLookPitch * (float) forwardOffset);
+
+                Vec3 finalPos = new Vec3(targetX, targetY, targetZ);
+                FirstPersonManager.setLastCameraPos(finalPos);
+
+                this.setPosition(finalPos.x, finalPos.y, finalPos.z);
+                this.setRotation(originalYaw, originalPitch);
             }
         }
     }

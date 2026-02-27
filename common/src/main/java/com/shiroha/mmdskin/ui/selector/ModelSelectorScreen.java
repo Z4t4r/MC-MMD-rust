@@ -78,8 +78,6 @@ public class ModelSelectorScreen extends Screen {
         for (ModelInfo info : models) {
             modelCards.add(new ModelCardEntry(info.getFolderName(), info));
         }
-        
-        logger.info("共加载 {} 个模型选项", modelCards.size());
     }
 
     @Override
@@ -107,7 +105,7 @@ public class ModelSelectorScreen extends Screen {
         this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), btn -> this.onClose())
             .bounds(panelX + 4, btnY, btnW, 14).build());
         
-        this.addRenderableWidget(Button.builder(Component.literal("刷新"), btn -> refreshModels())
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.refresh"), btn -> refreshModels())
             .bounds(panelX + 4 + btnW + 4, btnY, btnW, 14).build());
     }
 
@@ -119,7 +117,6 @@ public class ModelSelectorScreen extends Screen {
         scrollOffset = 0;
         this.clearWidgets();
         this.init();
-        logger.info("模型列表已刷新");
     }
 
     /**
@@ -138,8 +135,6 @@ public class ModelSelectorScreen extends Screen {
             String playerName = mc.player.getName().getString();
             com.shiroha.mmdskin.renderer.model.MMDModelManager.forceReloadPlayerModels(playerName);
         }
-        
-        logger.info("玩家选择模型: {}", card.displayName);
     }
 
     @Override
@@ -173,7 +168,7 @@ public class ModelSelectorScreen extends Screen {
         guiGraphics.drawCenteredString(this.font, this.title, cx, panelY + 4, COLOR_ACCENT);
         
         // 统计
-        String info = (modelCards.size() - 1) + " 模型 · " + truncate(currentModel, 10);
+        String info = Component.translatable("gui.mmdskin.model_selector.stats", modelCards.size() - 1, truncate(currentModel, 10)).getString();
         guiGraphics.drawCenteredString(this.font, info, cx, panelY + 16, COLOR_TEXT_DIM);
         
         // 分隔线

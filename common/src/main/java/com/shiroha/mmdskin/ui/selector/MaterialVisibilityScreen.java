@@ -1,6 +1,8 @@
 package com.shiroha.mmdskin.ui.selector;
 
 import com.shiroha.mmdskin.NativeFunc;
+import com.shiroha.mmdskin.config.ModelConfigData;
+import com.shiroha.mmdskin.config.ModelConfigManager;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
 import net.minecraft.client.Minecraft;
@@ -12,7 +14,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 材质可见性控制界面 — 简约右侧面板风格
@@ -43,6 +47,7 @@ public class MaterialVisibilityScreen extends Screen {
     // 模型和材质数据
     private final long modelHandle;
     private final String modelName;
+    private final String configModelName; // 配置持久化用的模型文件夹名
     private final List<MaterialEntry> materials;
     
     // UI 状态
@@ -56,10 +61,11 @@ public class MaterialVisibilityScreen extends Screen {
     private int panelX, panelY, panelH;
     private int listTop, listBottom;
     
-    public MaterialVisibilityScreen(long modelHandle, String modelName) {
-        super(Component.literal("材质可见性"));
+    public MaterialVisibilityScreen(long modelHandle, String modelName, String configModelName) {
+        super(Component.translatable("gui.mmdskin.material_visibility.title"));
         this.modelHandle = modelHandle;
         this.modelName = modelName;
+        this.configModelName = configModelName;
         this.materials = new ArrayList<>();
         loadMaterials();
     }
@@ -85,11 +91,7 @@ public class MaterialVisibilityScreen extends Screen {
             return null;
         }
         
-        if (model instanceof MMDModelManager.ModelWithEntityData mwed) {
-            return new MaterialVisibilityScreen(mwed.model.GetModelLong(), modelName);
-        }
-        
-        return null;
+        return new MaterialVisibilityScreen(model.model.getModelHandle(), modelName, modelName);
     }
     
     /**
@@ -104,12 +106,8 @@ public class MaterialVisibilityScreen extends Screen {
             return null;
         }
         
-        if (model instanceof MMDModelManager.ModelWithEntityData mwed) {
-            String displayName = maidName != null ? maidName : "女仆";
-            return new MaterialVisibilityScreen(mwed.model.GetModelLong(), displayName);
-        }
-        
-        return null;
+        String displayName = maidName != null ? maidName : Component.translatable("gui.mmdskin.maid.default_name").getString();
+        return new MaterialVisibilityScreen(model.model.getModelHandle(), displayName, model.getModelName());
     }
     
     /**
@@ -127,7 +125,6 @@ public class MaterialVisibilityScreen extends Screen {
         }
         
         updateCounts();
-        logger.info("加载了 {} 个材质", materials.size());
     }
     
     /**
@@ -162,13 +159,13 @@ public class MaterialVisibilityScreen extends Screen {
         int btnW = (PANEL_WIDTH - 16) / 3;
         
         // 第一行：全显 / 全隐 / 反选
-        this.addRenderableWidget(Button.builder(Component.literal("全显"), btn -> setAllVisible(true))
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.material_visibility.show_all"), btn -> setAllVisible(true))
             .bounds(panelX + 4, btnRow1Y, btnW, 14).build());
         
-        this.addRenderableWidget(Button.builder(Component.literal("全隐"), btn -> setAllVisible(false))
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.material_visibility.hide_all"), btn -> setAllVisible(false))
             .bounds(panelX + 4 + btnW + 4, btnRow1Y, btnW, 14).build());
         
-        this.addRenderableWidget(Button.builder(Component.literal("反选"), btn -> invertSelection())
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.material_visibility.invert"), btn -> invertSelection())
             .bounds(panelX + 4 + (btnW + 4) * 2, btnRow1Y, btnW, 14).build());
         
         // 第二行：完成
@@ -180,24 +177,32 @@ public class MaterialVisibilityScreen extends Screen {
      * 设置所有材质可见性
      */
     private void setAllVisible(boolean visible) {
-        NativeFunc nf = NativeFunc.GetInst();
-        nf.SetAllMaterialsVisible(modelHandle, visible);
-        for (MaterialEntry entry : materials) {
-            entry.visible = visible;
+        try {
+            NativeFunc nf = NativeFunc.GetInst();
+            nf.SetAllMaterialsVisible(modelHandle, visible);
+            for (MaterialEntry entry : materials) {
+                entry.visible = visible;
+            }
+            updateCounts();
+        } catch (Exception e) {
+            logger.warn("材质操作失败，模型可能已被释放", e);
         }
-        updateCounts();
     }
     
     /**
      * 反选所有材质
      */
     private void invertSelection() {
-        NativeFunc nf = NativeFunc.GetInst();
-        for (MaterialEntry entry : materials) {
-            entry.visible = !entry.visible;
-            nf.SetMaterialVisible(modelHandle, entry.index, entry.visible);
+        try {
+            NativeFunc nf = NativeFunc.GetInst();
+            for (MaterialEntry entry : materials) {
+                entry.visible = !entry.visible;
+                nf.SetMaterialVisible(modelHandle, entry.index, entry.visible);
+            }
+            updateCounts();
+        } catch (Exception e) {
+            logger.warn("材质操作失败，模型可能已被释放", e);
         }
-        updateCounts();
     }
     
     /**
@@ -209,8 +214,12 @@ public class MaterialVisibilityScreen extends Screen {
         MaterialEntry entry = materials.get(index);
         entry.visible = !entry.visible;
         
-        NativeFunc nf = NativeFunc.GetInst();
-        nf.SetMaterialVisible(modelHandle, entry.index, entry.visible);
+        try {
+            NativeFunc nf = NativeFunc.GetInst();
+            nf.SetMaterialVisible(modelHandle, entry.index, entry.visible);
+        } catch (Exception e) {
+            logger.warn("材质操作失败，模型可能已被释放", e);
+        }
         updateCounts();
     }
     
@@ -298,12 +307,12 @@ public class MaterialVisibilityScreen extends Screen {
         guiGraphics.fill(x, y + 1, x + 2, y + ITEM_HEIGHT - 1, barColor);
         
         // 材质名称（紧凑，不显示序号）
-        String displayName = entry.name.isEmpty() ? "(未命名)" : truncate(entry.name, 16);
+        String displayName = entry.name.isEmpty() ? Component.translatable("gui.mmdskin.material_visibility.unnamed").getString() : truncate(entry.name, 16);
         int nameColor = entry.visible ? COLOR_TEXT : COLOR_TEXT_DIM;
         guiGraphics.drawString(this.font, displayName, x + 6, y + 3, nameColor);
         
         // 右侧状态标签
-        String tag = entry.visible ? "ON" : "OFF";
+        String tag = Component.translatable(entry.visible ? "gui.mmdskin.material_visibility.on" : "gui.mmdskin.material_visibility.off").getString();
         int tagColor = entry.visible ? COLOR_VISIBLE : COLOR_HIDDEN;
         int tagW = this.font.width(tag);
         guiGraphics.drawString(this.font, tag, x + w - tagW - 4, y + 3, tagColor);
@@ -358,6 +367,34 @@ public class MaterialVisibilityScreen extends Screen {
     }
     
     @Override
+    public void onClose() {
+        saveMaterialVisibility();
+        super.onClose();
+    }
+    
+    /**
+     * 保存当前材质可见性状态到模型配置
+     */
+    private void saveMaterialVisibility() {
+        if (configModelName == null || configModelName.isEmpty()) return;
+        
+        try {
+            ModelConfigData config = ModelConfigManager.getConfig(configModelName);
+            Set<Integer> hidden = new HashSet<>();
+            for (MaterialEntry entry : materials) {
+                if (!entry.visible) {
+                    hidden.add(entry.index);
+                }
+            }
+            config.hiddenMaterials = hidden;
+            ModelConfigManager.saveConfig(configModelName, config);
+            logger.debug("材质可见性已保存: {} (隐藏 {})", configModelName, hidden.size());
+        } catch (Exception e) {
+            logger.warn("保存材质可见性失败: {}", configModelName, e);
+        }
+    }
+    
+    @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == 256) {
             this.onClose();
@@ -370,6 +407,7 @@ public class MaterialVisibilityScreen extends Screen {
     public boolean isPauseScreen() {
         return false;
     }
+    
     
     private static String truncate(String s, int max) {
         return s.length() > max ? s.substring(0, max - 2) + ".." : s;

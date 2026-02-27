@@ -9,6 +9,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -16,8 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 
  * 使用工厂注册机制管理不同的渲染模式。
  * 新的渲染模式只需注册工厂，无需修改此类。
- * 
- * 渲染模式优先级由工厂的 getPriority() 决定，数值越大优先级越高。
+ * 启用状态由本类通过 RenderCategory 统一管理，工厂本身不持有状态。
  */
 public class RenderModeManager {
     private static final Logger logger = LogManager.getLogger();
@@ -25,195 +26,132 @@ public class RenderModeManager {
     /** 已注册的工厂列表（线程安全） */
     private static final List<IMMDModelFactory> factories = new CopyOnWriteArrayList<>();
     
+    /** 各渲染分类的启用状态（线程安全，默认禁用） */
+    private static final Map<RenderCategory, Boolean> enabledStates = new ConcurrentHashMap<>();
+    
     /** 是否已初始化 */
-    private static boolean initialized = false;
+    private static volatile boolean initialized = false;
     
     /**
      * 注册模型工厂
-     * 
-     * @param factory 要注册的工厂
      */
-    public static void registerFactory(IMMDModelFactory factory) {
-        if (factory == null) {
-            return;
-        }
+    public static synchronized void registerFactory(IMMDModelFactory factory) {
+        if (factory == null) return;
         
-        // 避免重复注册
         for (IMMDModelFactory existing : factories) {
-            if (existing.getModeName().equals(factory.getModeName())) {
-                logger.warn("工厂 '{}' 已存在，跳过注册", factory.getModeName());
+            if (existing.getCategory() == factory.getCategory()) {
+                logger.warn("渲染分类 {} 已存在，跳过注册", factory.getCategory());
                 return;
             }
         }
         
         factories.add(factory);
-        logger.info("注册渲染工厂: {} (优先级: {}, 可用: {})", 
-            factory.getModeName(), factory.getPriority(), factory.isAvailable());
+        enabledStates.putIfAbsent(factory.getCategory(), 
+            factory.getCategory() == RenderCategory.CPU_SKINNING);
     }
     
     /**
      * 取消注册工厂
      */
-    public static void unregisterFactory(String modeName) {
-        factories.removeIf(f -> f.getModeName().equals(modeName));
+    public static void unregisterFactory(RenderCategory category) {
+        factories.removeIf(f -> f.getCategory() == category);
+        enabledStates.remove(category);
     }
     
     /**
      * 从配置初始化渲染模式
      */
     public static void init() {
-        if (initialized) {
-            return;
-        }
+        if (initialized) return;
         
-        // 从配置同步工厂启用状态
         syncFactoryStates();
-        
         initialized = true;
-        logger.info("RenderModeManager 初始化完成 (已注册 {} 个工厂)", factories.size());
-        logger.info("当前渲染模式: {}", getCurrentModeDescription());
     }
     
     /**
      * 从配置同步工厂启用状态
      */
     private static void syncFactoryStates() {
-        boolean gpuEnabled = ConfigManager.isGpuSkinningEnabled();
-        
-        for (IMMDModelFactory factory : factories) {
-            String name = factory.getModeName();
-            if (name.contains("GPU") || name.contains("Gpu")) {
-                factory.setEnabled(gpuEnabled);
-            }
-        }
+        enabledStates.put(RenderCategory.GPU_SKINNING, ConfigManager.isGpuSkinningEnabled());
+    }
+    
+    // ==================== 启用状态管理 ====================
+    
+    /**
+     * 检查指定渲染分类是否启用
+     */
+    public static boolean isEnabled(RenderCategory category) {
+        return Boolean.TRUE.equals(enabledStates.get(category));
     }
     
     /**
-     * 设置是否使用 GPU 蒙皮
+     * 设置指定渲染分类的启用状态
      */
+    public static void setEnabled(RenderCategory category, boolean enabled) {
+        enabledStates.put(category, enabled);
+    }
+    
     public static void setUseGpuSkinning(boolean enabled) {
-        for (IMMDModelFactory factory : factories) {
-            String name = factory.getModeName();
-            if (name.contains("GPU") || name.contains("Gpu")) {
-                factory.setEnabled(enabled);
-            }
-        }
-        logger.info("GPU 蒙皮模式: {}", enabled ? "启用" : "禁用");
+        setEnabled(RenderCategory.GPU_SKINNING, enabled);
     }
     
     public static boolean isUseGpuSkinning() {
-        for (IMMDModelFactory factory : factories) {
-            String name = factory.getModeName();
-            if ((name.contains("GPU") || name.contains("Gpu")) && factory.isEnabled()) {
-                return true;
-            }
-        }
-        return false;
+        return isEnabled(RenderCategory.GPU_SKINNING);
     }
     
-    /**
-     * 设置是否使用原生渲染模式（Iris 兼容）
-     */
-    public static void setUseNativeRender(boolean enabled) {
-        for (IMMDModelFactory factory : factories) {
-            String name = factory.getModeName();
-            if (name.contains("Native") || name.contains("原生")) {
-                factory.setEnabled(enabled);
-            }
-        }
-        logger.info("原生渲染模式: {}", enabled ? "启用" : "禁用");
-    }
-    
-    public static boolean isUseNativeRender() {
-        for (IMMDModelFactory factory : factories) {
-            String name = factory.getModeName();
-            if ((name.contains("Native") || name.contains("原生")) && factory.isEnabled()) {
-                return true;
-            }
-        }
-        return false;
-    }
+    // ==================== 工厂查询 ====================
     
     /**
      * 获取当前渲染模式的描述
      */
     public static String getCurrentModeDescription() {
-        IMMDModelFactory activeFactory = getActiveFactory(false);
-        if (activeFactory != null) {
-            return activeFactory.getModeName();
+        List<IMMDModelFactory> candidates = getOrderedFactories(false, false);
+        if (!candidates.isEmpty()) {
+            return candidates.get(0).getModeName();
         }
         return "无可用渲染模式";
     }
     
     /**
-     * 获取当前激活的工厂（按优先级排序，返回第一个可用且启用的）
+     * 获取按优先级排序的可用工厂列表
      * 
-     * @param isPMD 是否为 PMD 格式（某些工厂可能不支持）
+     * @param isPMD 是否需要 PMD 支持（过滤不支持的工厂）
+     * @param includeDisabled 是否包含未启用的工厂
+     * @return 按优先级降序排列的工厂列表
      */
-    private static IMMDModelFactory getActiveFactory(boolean isPMD) {
-        // 按优先级降序排序
+    private static List<IMMDModelFactory> getOrderedFactories(boolean isPMD, boolean includeDisabled) {
+        List<IMMDModelFactory> result = new ArrayList<>();
+        
         List<IMMDModelFactory> sorted = new ArrayList<>(factories);
         sorted.sort(Comparator.comparingInt(IMMDModelFactory::getPriority).reversed());
         
         for (IMMDModelFactory factory : sorted) {
-            if (factory.isAvailable() && factory.isEnabled()) {
-                // 原生渲染不支持 PMD
-                if (isPMD && factory.getModeName().contains("Native")) {
-                    continue;
-                }
-                return factory;
-            }
+            if (!factory.isAvailable()) continue;
+            if (isPMD && !factory.supportsPMD()) continue;
+            if (!includeDisabled && !isEnabled(factory.getCategory())) continue;
+            result.add(factory);
         }
-        
-        // 回退：返回任何可用的工厂
-        for (IMMDModelFactory factory : sorted) {
-            if (factory.isAvailable()) {
-                return factory;
-            }
-        }
-        
-        return null;
+        return result;
     }
+    
+    // ==================== 模型创建 ====================
     
     /**
      * 根据当前渲染模式创建模型
-     * 
-     * @param modelFilename 模型文件路径
-     * @param modelDir 模型目录
-     * @param isPMD 是否为 PMD 格式
-     * @param layerCount 动画层数
-     * @return 创建的模型实例，失败返回 null
      */
     public static IMMDModel createModel(String modelFilename, String modelDir, boolean isPMD, long layerCount) {
-        // 每次创建模型时同步配置状态
         syncFactoryStates();
         
-        // 按优先级尝试所有可用工厂
-        List<IMMDModelFactory> sorted = new ArrayList<>(factories);
-        sorted.sort(Comparator.comparingInt(IMMDModelFactory::getPriority).reversed());
+        // 一次性获取所有可用工厂，分为已启用和回退两组
+        List<IMMDModelFactory> enabled = getOrderedFactories(isPMD, false);
+        IMMDModel model = tryCreateWithFactories(enabled, modelFilename, modelDir, isPMD, layerCount);
+        if (model != null) return model;
         
-        for (IMMDModelFactory factory : sorted) {
-            if (!factory.isAvailable() || !factory.isEnabled()) {
-                continue;
-            }
-            
-            // 原生渲染不支持 PMD
-            if (isPMD && factory.getModeName().contains("Native")) {
-                continue;
-            }
-            
-            logger.info("尝试使用 {} 创建模型: {}", factory.getModeName(), modelFilename);
-            
-            try {
-                IMMDModel model = factory.createModel(modelFilename, modelDir, isPMD, layerCount);
-                if (model != null) {
-                    return model;
-                }
-                logger.warn("{} 创建失败，尝试下一个工厂", factory.getModeName());
-            } catch (Exception e) {
-                logger.error("{} 创建异常: {}", factory.getModeName(), e.getMessage());
-            }
-        }
+        // 回退：尝试可用但未启用的工厂
+        List<IMMDModelFactory> all = getOrderedFactories(isPMD, true);
+        all.removeAll(enabled);
+        model = tryCreateWithFactories(all, modelFilename, modelDir, isPMD, layerCount);
+        if (model != null) return model;
         
         logger.error("所有工厂都无法创建模型: {}", modelFilename);
         return null;
@@ -223,66 +161,60 @@ public class RenderModeManager {
      * 根据模型信息创建模型（便捷方法）
      */
     public static IMMDModel createModel(ModelInfo modelInfo, long layerCount) {
-        if (modelInfo == null) {
-            return null;
-        }
+        if (modelInfo == null) return null;
         return createModel(
-            modelInfo.getModelFilePath(),
-            modelInfo.getFolderPath(),
-            modelInfo.isPMD(),
-            layerCount
-        );
+            modelInfo.getModelFilePath(), modelInfo.getFolderPath(),
+            modelInfo.isPMD(), layerCount);
     }
     
     /**
      * 从已加载的模型句柄创建渲染实例（Phase 2：GL 资源创建，必须在渲染线程调用）
-     * 用于两阶段异步加载。
-     * 
-     * @param modelHandle 后台线程加载的模型句柄
-     * @param modelDir 模型目录
-     * @param isPMD 是否为 PMD 格式
-     * @return 创建的模型实例，失败返回 null
      */
     public static IMMDModel createModelFromHandle(long modelHandle, String modelDir, boolean isPMD) {
         syncFactoryStates();
         
-        List<IMMDModelFactory> sorted = new ArrayList<>(factories);
-        sorted.sort(Comparator.comparingInt(IMMDModelFactory::getPriority).reversed());
+        // 一次性获取所有可用工厂，分为已启用和回退两组
+        List<IMMDModelFactory> enabled = getOrderedFactories(isPMD, false);
+        IMMDModel model = tryCreateFromHandle(enabled, modelHandle, modelDir);
+        if (model != null) return model;
         
-        for (IMMDModelFactory factory : sorted) {
-            if (!factory.isAvailable() || !factory.isEnabled()) {
-                continue;
+        // 回退：尝试可用但未启用的工厂
+        List<IMMDModelFactory> all = getOrderedFactories(isPMD, true);
+        all.removeAll(enabled);
+        model = tryCreateFromHandle(all, modelHandle, modelDir);
+        if (model != null) return model;
+        
+        logger.error("所有工厂都无法从句柄创建模型");
+        return null;
+    }
+    
+    // ==================== 内部方法 ====================
+    
+    private static IMMDModel tryCreateWithFactories(List<IMMDModelFactory> candidates,
+            String modelFilename, String modelDir, boolean isPMD, long layerCount) {
+        for (IMMDModelFactory factory : candidates) {
+            try {
+                IMMDModel model = factory.createModel(modelFilename, modelDir, isPMD, layerCount);
+                if (model != null) return model;
+                logger.warn("{} 创建失败，尝试下一个工厂", factory.getModeName());
+            } catch (Exception e) {
+                logger.error("{} 创建异常: {}", factory.getModeName(), e.getMessage());
             }
-            if (isPMD && factory.getModeName().contains("Native")) {
-                continue;
-            }
-            
-            logger.info("尝试使用 {} 从句柄创建模型", factory.getModeName());
-            
+        }
+        return null;
+    }
+    
+    private static IMMDModel tryCreateFromHandle(List<IMMDModelFactory> candidates,
+            long modelHandle, String modelDir) {
+        for (IMMDModelFactory factory : candidates) {
             try {
                 IMMDModel model = factory.createModelFromHandle(modelHandle, modelDir);
-                if (model != null) {
-                    return model;
-                }
+                if (model != null) return model;
                 logger.warn("{} 从句柄创建失败，尝试下一个工厂", factory.getModeName());
             } catch (Exception e) {
                 logger.error("{} 从句柄创建异常: {}", factory.getModeName(), e.getMessage());
             }
         }
-        
-        // 回退：尝试任何可用工厂
-        for (IMMDModelFactory factory : sorted) {
-            if (factory.isAvailable()) {
-                try {
-                    IMMDModel model = factory.createModelFromHandle(modelHandle, modelDir);
-                    if (model != null) return model;
-                } catch (Exception e) {
-                    logger.error("回退工厂 {} 从句柄创建异常", factory.getModeName(), e);
-                }
-            }
-        }
-        
-        logger.error("所有工厂都无法从句柄创建模型");
         return null;
     }
     

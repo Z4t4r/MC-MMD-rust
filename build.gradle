@@ -13,7 +13,7 @@ allprojects {
 	apply plugin: 'architectury-plugin'
 	
 	group = maven_group
-	version = '1.0.1-1.20.1'
+	version = '1.0.3-1.20.1'
 	
 	repositories {
 		maven { url = 'https://maven.architectury.dev/' }
@@ -89,12 +89,4 @@ subprojects {
 		mappings loom.officialMojangMappings()
 	}
 	
-	// 配置runClient任务，设置固定的玩家名称（仅 Fabric）
-	if (project.name == 'fabric') {
-		tasks.named('runClient', JavaExec).configure {
-			def username = rootProject.properties.getOrDefault('minecraft_username', 'Player')
-			args '--username', username
-			jvmArgs '-Xmx4G', '-Xms2G'
-		}
-	}
 }

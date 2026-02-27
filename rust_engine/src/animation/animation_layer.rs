@@ -287,6 +287,11 @@ impl AnimationLayer {
         self.config.speed = speed.max(0.0);
     }
 
+    /// 设置是否循环播放
+    pub fn set_loop_playback(&mut self, loop_play: bool) {
+        self.config.loop_playback = loop_play;
+    }
+
     /// 更新层状态
     pub fn update(&mut self, delta_time: f32) -> bool {
         if !self.enabled || self.animation.is_none() {
@@ -559,6 +564,13 @@ impl AnimationLayerManager {
     pub fn set_layer_speed(&mut self, layer_id: usize, speed: f32) {
         if let Some(layer) = self.layers.get_mut(layer_id) {
             layer.set_speed(speed);
+        }
+    }
+
+    /// 设置层是否循环播放
+    pub fn set_layer_loop(&mut self, layer_id: usize, loop_play: bool) {
+        if let Some(layer) = self.layers.get_mut(layer_id) {
+            layer.set_loop_playback(loop_play);
         }
     }
 

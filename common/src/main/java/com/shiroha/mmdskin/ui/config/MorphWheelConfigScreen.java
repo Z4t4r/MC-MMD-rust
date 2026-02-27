@@ -83,13 +83,13 @@ public class MorphWheelConfigScreen extends Screen {
         rightMaxScroll = Math.max(0, selectedMorphs.size() * (ITEM_HEIGHT + ITEM_SPACING) - panelHeight + PANEL_PADDING * 2);
         
         // 底部按钮
-        this.addRenderableWidget(Button.builder(Component.literal("刷新"), btn -> rescan())
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.refresh"), btn -> rescan())
             .bounds(centerX - 155, buttonY, 70, 20).build());
         
-        this.addRenderableWidget(Button.builder(Component.literal("全选"), btn -> selectAll())
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.select_all"), btn -> selectAll())
             .bounds(centerX - 80, buttonY, 50, 20).build());
         
-        this.addRenderableWidget(Button.builder(Component.literal("清空"), btn -> clearAll())
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.clear_all"), btn -> clearAll())
             .bounds(centerX - 25, buttonY, 50, 20).build());
         
         this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), btn -> saveAndClose())
@@ -104,7 +104,6 @@ public class MorphWheelConfigScreen extends Screen {
         loadData();
         this.clearWidgets();
         this.init();
-        logger.info("表情列表已刷新");
     }
     
     private void selectAll() {
@@ -133,7 +132,6 @@ public class MorphWheelConfigScreen extends Screen {
         MorphWheelConfig config = MorphWheelConfig.getInstance();
         config.setDisplayedMorphs(selectedMorphs);
         config.save();
-        logger.info("已保存 {} 个表情到轮盘", selectedMorphs.size());
         this.onClose();
     }
 
@@ -145,8 +143,8 @@ public class MorphWheelConfigScreen extends Screen {
         guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 12, COLOR_TEXT_PRIMARY);
         
         // 副标题
-        String subtitle = String.format("可用: %d  |  已选: %d", availableMorphs.size(), selectedMorphs.size());
-        guiGraphics.drawCenteredString(this.font, Component.literal(subtitle), this.width / 2, 28, COLOR_TEXT_SECONDARY);
+        Component subtitle = Component.translatable("gui.mmdskin.config.stats", availableMorphs.size(), selectedMorphs.size());
+        guiGraphics.drawCenteredString(this.font, subtitle, this.width / 2, 28, COLOR_TEXT_SECONDARY);
         
         int panelTop = HEADER_HEIGHT;
         int panelBottom = this.height - FOOTER_HEIGHT;
@@ -156,11 +154,11 @@ public class MorphWheelConfigScreen extends Screen {
         
         // 绘制左侧面板背景
         guiGraphics.fill(leftPanelX, panelTop, leftPanelX + PANEL_WIDTH, panelBottom, COLOR_PANEL_BG);
-        guiGraphics.drawString(this.font, "可用表情", leftPanelX + 5, panelTop - 12, COLOR_TEXT_SECONDARY);
+        guiGraphics.drawString(this.font, Component.translatable("gui.mmdskin.morph_config.available"), leftPanelX + 5, panelTop - 12, COLOR_TEXT_SECONDARY);
         
         // 绘制右侧面板背景
         guiGraphics.fill(rightPanelX, panelTop, rightPanelX + PANEL_WIDTH, panelBottom, COLOR_PANEL_BG);
-        guiGraphics.drawString(this.font, "已选表情", rightPanelX + 5, panelTop - 12, COLOR_TEXT_SECONDARY);
+        guiGraphics.drawString(this.font, Component.translatable("gui.mmdskin.morph_config.selected"), rightPanelX + 5, panelTop - 12, COLOR_TEXT_SECONDARY);
         
         // 启用裁剪
         guiGraphics.enableScissor(leftPanelX, panelTop, leftPanelX + PANEL_WIDTH, panelBottom);
@@ -206,8 +204,8 @@ public class MorphWheelConfigScreen extends Screen {
         
         // 中间箭头提示
         int arrowY = this.height / 2;
-        guiGraphics.drawCenteredString(this.font, "←点击添加", this.width / 2, arrowY - 10, COLOR_TEXT_SECONDARY);
-        guiGraphics.drawCenteredString(this.font, "点击移除→", this.width / 2, arrowY + 5, COLOR_TEXT_SECONDARY);
+        guiGraphics.drawCenteredString(this.font, Component.translatable("gui.mmdskin.config.click_add"), this.width / 2, arrowY - 10, COLOR_TEXT_SECONDARY);
+        guiGraphics.drawCenteredString(this.font, Component.translatable("gui.mmdskin.config.click_remove"), this.width / 2, arrowY + 5, COLOR_TEXT_SECONDARY);
         
         super.render(guiGraphics, mouseX, mouseY, partialTick);
     }
@@ -232,7 +230,7 @@ public class MorphWheelConfigScreen extends Screen {
         // 文件名
         String fileName = entry.morphName + ".vpd";
         if (font.width(fileName) > width - 10) {
-            fileName = fileName.substring(0, 15) + "...";
+            fileName = fileName.substring(0, Math.min(15, fileName.length())) + "...";
         }
         guiGraphics.drawString(this.font, fileName, x + 5, y + 26, COLOR_TEXT_SECONDARY);
     }
@@ -248,11 +246,11 @@ public class MorphWheelConfigScreen extends Screen {
     }
     
     private String getSourceText(String source) {
-        if (source == null) return "未知";
+        if (source == null) return Component.translatable("gui.mmdskin.source.unknown").getString();
         return switch (source) {
-            case "DEFAULT" -> "默认";
-            case "CUSTOM" -> "自定义";
-            case "MODEL" -> "模型专属";
+            case "DEFAULT" -> Component.translatable("gui.mmdskin.source.default").getString();
+            case "CUSTOM" -> Component.translatable("gui.mmdskin.source.custom").getString();
+            case "MODEL" -> Component.translatable("gui.mmdskin.source.model_exclusive").getString();
             default -> source;
         };
     }

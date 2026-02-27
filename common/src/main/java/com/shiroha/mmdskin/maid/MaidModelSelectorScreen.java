@@ -70,15 +70,14 @@ public class MaidModelSelectorScreen extends Screen {
         modelCards.clear();
         
         // 添加默认选项（使用原版渲染）
-        modelCards.add(new ModelCardEntry(UIConstants.DEFAULT_MODEL_NAME, null));
+        modelCards.add(new ModelCardEntry(UIConstants.DEFAULT_MODEL_NAME));
         
         // 使用 ModelInfo 扫描所有模型
         List<ModelInfo> models = ModelInfo.scanModels();
         for (ModelInfo info : models) {
-            modelCards.add(new ModelCardEntry(info.getFolderName(), info));
+            modelCards.add(new ModelCardEntry(info.getFolderName()));
         }
         
-        logger.info("女仆模型选择: 共加载 {} 个模型选项", modelCards.size());
     }
 
     @Override
@@ -106,7 +105,7 @@ public class MaidModelSelectorScreen extends Screen {
         this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), btn -> this.onClose())
             .bounds(panelX + 4, btnY, btnW, 14).build());
         
-        this.addRenderableWidget(Button.builder(Component.literal("刷新"), btn -> refreshModels())
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.refresh"), btn -> refreshModels())
             .bounds(panelX + 4 + btnW + 4, btnY, btnW, 14).build());
     }
 
@@ -115,7 +114,6 @@ public class MaidModelSelectorScreen extends Screen {
         scrollOffset = 0;
         this.clearWidgets();
         this.init();
-        logger.info("女仆模型列表已刷新");
     }
 
     private void selectModel(ModelCardEntry card) {
@@ -127,10 +125,6 @@ public class MaidModelSelectorScreen extends Screen {
         // 发送网络包同步到服务器
         MaidModelNetworkHandler.sendMaidModelChange(maidEntityId, card.displayName);
         
-        // 触发模型切换事件，1分钟后清理未使用的缓存
-        com.shiroha.mmdskin.renderer.model.MMDModelManager.onModelSwitch();
-        
-        logger.info("女仆 {} 选择模型: {}", maidName, card.displayName);
     }
 
     @Override
@@ -165,7 +159,7 @@ public class MaidModelSelectorScreen extends Screen {
         guiGraphics.drawCenteredString(this.font, maidInfo, cx, panelY + 16, COLOR_TEXT_DIM);
         
         // 统计
-        String info = (modelCards.size() - 1) + " 模型 · " + truncate(currentModel, 10);
+        String info = Component.translatable("gui.mmdskin.model_selector.stats", modelCards.size() - 1, truncate(currentModel, 10)).getString();
         guiGraphics.drawCenteredString(this.font, info, cx, panelY + 28, COLOR_TEXT_DIM);
         
         // 分隔线
@@ -276,11 +270,9 @@ public class MaidModelSelectorScreen extends Screen {
 
     private static class ModelCardEntry {
         final String displayName;
-        final ModelInfo modelInfo;
 
-        ModelCardEntry(String displayName, ModelInfo modelInfo) {
+        ModelCardEntry(String displayName) {
             this.displayName = displayName;
-            this.modelInfo = modelInfo;
         }
     }
 }

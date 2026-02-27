@@ -21,7 +21,7 @@ public class ConfigData {
     
     // 渲染设置
     public boolean openGLEnableLighting = true;
-    public int modelPoolMaxCount = 100;
+    public int modelPoolMaxCount = 20;
     public boolean mmdShaderEnabled = false;
     
     // GPU 加速
@@ -45,58 +45,33 @@ public class ConfigData {
     public float toonOutlineG = 0.0f;
     public float toonOutlineB = 0.0f;
     
-    // ==================== 物理引擎配置 ====================
-    // 重力
-    public float physicsGravityY = -3.8f;
-    
-    // 模拟参数
+    // ==================== 物理引擎配置（Bullet3） ====================
+    // 默认值与 Rust PhysicsConfig 保持一致
+    public boolean physicsEnabled = true;
+    public float physicsGravityY = -98.0f;
     public float physicsFps = 60.0f;
-    public int physicsMaxSubstepCount = 4;
-    public int physicsSolverIterations = 4;
-    public int physicsPgsIterations = 2;
-    public float physicsMaxCorrectiveVelocity = 0.1f;
-    
-    // 刚体阻尼
-    public float physicsLinearDampingScale = 0.3f;
-    public float physicsAngularDampingScale = 0.2f;
-    
-    // 质量
-    public float physicsMassScale = 2.0f;
-    
-    // 弹簧刚度
-    public float physicsLinearSpringStiffnessScale = 0.01f;
-    public float physicsAngularSpringStiffnessScale = 0.01f;
-    
-    // 弹簧阻尼
-    public float physicsLinearSpringDampingFactor = 8.0f;
-    public float physicsAngularSpringDampingFactor = 8.0f;
-    
-    // 惯性效果
-    public float physicsInertiaStrength = 1.0f;
-    
-    // 速度限制
-    public float physicsMaxLinearVelocity = 1.0f;
-    public float physicsMaxAngularVelocity = 1.0f;
-    
-    // 胸部物理专用参数
-    public boolean physicsBustEnabled = true;
-    public float physicsBustLinearDampingScale = 1.5f;
-    public float physicsBustAngularDampingScale = 1.5f;
-    public float physicsBustMassScale = 1.0f;
-    public float physicsBustLinearSpringStiffnessScale = 10.0f;
-    public float physicsBustAngularSpringStiffnessScale = 10.0f;
-    public float physicsBustLinearSpringDampingFactor = 3.0f;
-    public float physicsBustAngularSpringDampingFactor = 3.0f;
-    
-    // 胸部防凹陷
-    public boolean physicsBustClampInward = true;
-    
-    // 调试
+    public int physicsMaxSubstepCount = 5;
+    public float physicsInertiaStrength = 0.5f;
+    public float physicsMaxLinearVelocity = 20.0f;
+    public float physicsMaxAngularVelocity = 20.0f;
     public boolean physicsJointsEnabled = true;
+    public boolean physicsKinematicFilter = true;
     public boolean physicsDebugLog = false;
     
     // 第一人称模型显示
     public boolean firstPersonModelEnabled = false;
+    public float firstPersonCameraForwardOffset = 0.0f;
+    public float firstPersonCameraVerticalOffset = 0.0f;
+    
+    // 纹理缓存
+    public int textureCacheBudgetMB = 256;
+    
+    // 调试
+    public boolean debugHudEnabled = false;
+    
+    // VR 联动
+    public boolean vrEnabled = true;
+    public float vrArmIKStrength = 1.0f;
     
     /**
      * 从文件加载配置
@@ -105,7 +80,6 @@ public class ConfigData {
         Path configFile = configPath.resolve("config.json");
         
         if (!Files.exists(configFile)) {
-            logger.info("配置文件不存在，创建默认配置: {}", configFile);
             ConfigData defaultConfig = new ConfigData();
             defaultConfig.save(configPath);
             return defaultConfig;
@@ -117,7 +91,6 @@ public class ConfigData {
                 logger.warn("配置文件为空，使用默认配置");
                 return new ConfigData();
             }
-            logger.info("配置加载成功: {}", configFile);
             return config;
         } catch (Exception e) {
             logger.error("配置加载失败，使用默认配置: {}", e.getMessage());
@@ -138,7 +111,6 @@ public class ConfigData {
             Path configFile = configPath.resolve("config.json");
             try (Writer writer = Files.newBufferedWriter(configFile)) {
                 GSON.toJson(this, writer);
-                logger.info("配置已保存: {}", configFile);
             }
         } catch (IOException e) {
             logger.error("保存配置失败: {}", e.getMessage());
@@ -147,58 +119,18 @@ public class ConfigData {
     
     /**
      * 复制当前值到另一个配置对象
+     * 通过 Gson 序列化/反序列化实现深拷贝，新增字段时无需手动同步
      */
     public void copyTo(ConfigData other) {
-        other.openGLEnableLighting = this.openGLEnableLighting;
-        other.modelPoolMaxCount = this.modelPoolMaxCount;
-        other.mmdShaderEnabled = this.mmdShaderEnabled;
-        other.gpuSkinningEnabled = this.gpuSkinningEnabled;
-        other.gpuMorphEnabled = this.gpuMorphEnabled;
-        other.maxBones = this.maxBones;
-        other.toonRenderingEnabled = this.toonRenderingEnabled;
-        other.toonLevels = this.toonLevels;
-        other.toonRimPower = this.toonRimPower;
-        other.toonRimIntensity = this.toonRimIntensity;
-        other.toonShadowR = this.toonShadowR;
-        other.toonShadowG = this.toonShadowG;
-        other.toonShadowB = this.toonShadowB;
-        other.toonSpecularPower = this.toonSpecularPower;
-        other.toonSpecularIntensity = this.toonSpecularIntensity;
-        other.toonOutlineEnabled = this.toonOutlineEnabled;
-        other.toonOutlineWidth = this.toonOutlineWidth;
-        other.toonOutlineR = this.toonOutlineR;
-        other.toonOutlineG = this.toonOutlineG;
-        other.toonOutlineB = this.toonOutlineB;
-        // 物理引擎配置
-        other.physicsGravityY = this.physicsGravityY;
-        other.physicsFps = this.physicsFps;
-        other.physicsMaxSubstepCount = this.physicsMaxSubstepCount;
-        other.physicsSolverIterations = this.physicsSolverIterations;
-        other.physicsPgsIterations = this.physicsPgsIterations;
-        other.physicsMaxCorrectiveVelocity = this.physicsMaxCorrectiveVelocity;
-        other.physicsLinearDampingScale = this.physicsLinearDampingScale;
-        other.physicsAngularDampingScale = this.physicsAngularDampingScale;
-        other.physicsMassScale = this.physicsMassScale;
-        other.physicsLinearSpringStiffnessScale = this.physicsLinearSpringStiffnessScale;
-        other.physicsAngularSpringStiffnessScale = this.physicsAngularSpringStiffnessScale;
-        other.physicsLinearSpringDampingFactor = this.physicsLinearSpringDampingFactor;
-        other.physicsAngularSpringDampingFactor = this.physicsAngularSpringDampingFactor;
-        other.physicsInertiaStrength = this.physicsInertiaStrength;
-        other.physicsMaxLinearVelocity = this.physicsMaxLinearVelocity;
-        other.physicsMaxAngularVelocity = this.physicsMaxAngularVelocity;
-        // 胸部物理配置
-        other.physicsBustEnabled = this.physicsBustEnabled;
-        other.physicsBustLinearDampingScale = this.physicsBustLinearDampingScale;
-        other.physicsBustAngularDampingScale = this.physicsBustAngularDampingScale;
-        other.physicsBustMassScale = this.physicsBustMassScale;
-        other.physicsBustLinearSpringStiffnessScale = this.physicsBustLinearSpringStiffnessScale;
-        other.physicsBustAngularSpringStiffnessScale = this.physicsBustAngularSpringStiffnessScale;
-        other.physicsBustLinearSpringDampingFactor = this.physicsBustLinearSpringDampingFactor;
-        other.physicsBustAngularSpringDampingFactor = this.physicsBustAngularSpringDampingFactor;
-        other.physicsBustClampInward = this.physicsBustClampInward;
-        other.physicsJointsEnabled = this.physicsJointsEnabled;
-        other.physicsDebugLog = this.physicsDebugLog;
-        // 第一人称
-        other.firstPersonModelEnabled = this.firstPersonModelEnabled;
+        ConfigData copy = GSON.fromJson(GSON.toJson(this), ConfigData.class);
+        // 利用 Gson 反序列化得到的副本覆盖目标对象的所有字段
+        try {
+            for (var field : ConfigData.class.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                field.set(other, field.get(copy));
+            }
+        } catch (IllegalAccessException e) {
+            logger.error("配置复制失败", e);
+        }
     }
 }

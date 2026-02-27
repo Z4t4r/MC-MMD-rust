@@ -28,10 +28,8 @@ public class MaidRenderEventHandler {
         try {
             Class.forName("com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid");
             touhouLittleMaidLoaded = true;
-            logger.info("检测到 TouhouLittleMaid 模组，启用女仆 MMD 渲染支持");
         } catch (ClassNotFoundException e) {
             touhouLittleMaidLoaded = false;
-            logger.info("未检测到 TouhouLittleMaid 模组");
         }
     }
     

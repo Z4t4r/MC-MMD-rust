@@ -29,14 +29,10 @@ public final class ModelFactoryRegistry {
             return;
         }
         
-        logger.info("注册模型工厂...");
-        
         // 注册所有工厂（按优先级从低到高）
         RenderModeManager.registerFactory(new OpenGLModelFactory());
         RenderModeManager.registerFactory(new GpuSkinningModelFactory());
-        RenderModeManager.registerFactory(new NativeRenderModelFactory());
         
         registered = true;
-        logger.info("模型工厂注册完成");
     }
 }

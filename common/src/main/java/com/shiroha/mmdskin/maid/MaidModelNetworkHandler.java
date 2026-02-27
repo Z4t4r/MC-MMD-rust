@@ -24,7 +24,6 @@ public class MaidModelNetworkHandler {
      */
     public static void setNetworkSender(BiConsumer<Integer, String> sender) {
         networkSender = sender;
-        logger.info("女仆模型网络发送器已设置");
     }
 
     /**
@@ -35,8 +34,12 @@ public class MaidModelNetworkHandler {
      */
     public static void sendMaidModelChange(int entityId, String modelName) {
         if (networkSender != null) {
-            networkSender.accept(entityId, modelName);
-            logger.info("发送女仆模型变更到服务器: 实体={}, 模型={}", entityId, modelName);
+            try {
+                networkSender.accept(entityId, modelName);
+                logger.debug("发送女仆模型变更到服务器: 实体={}, 模型={}", entityId, modelName);
+            } catch (Exception e) {
+                logger.error("发送女仆模型变更失败", e);
+            }
         } else {
             logger.warn("网络发送器未设置，无法发送女仆模型变更");
         }

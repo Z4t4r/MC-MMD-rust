@@ -87,7 +87,6 @@ public class MorphWheelConfig {
             }
         }
         
-        logger.info("扫描到 {} 个可用表情", availableMorphs.size());
     }
     
     /**
@@ -176,7 +175,6 @@ public class MorphWheelConfig {
             if (loaded != null) {
                 displayedMorphs = loaded;
             }
-            logger.info("加载表情轮盘配置: {} 个表情", displayedMorphs.size());
         } catch (Exception e) {
             logger.error("加载表情配置失败", e);
         }
@@ -196,7 +194,6 @@ public class MorphWheelConfig {
         
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(configFile), StandardCharsets.UTF_8)) {
             gson.toJson(displayedMorphs, writer);
-            logger.info("保存表情轮盘配置: {} 个表情", displayedMorphs.size());
         } catch (Exception e) {
             logger.error("保存表情配置失败", e);
         }

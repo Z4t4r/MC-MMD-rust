@@ -5,35 +5,36 @@ import java.util.function.Supplier;
 
 import com.shiroha.mmdskin.forge.register.MmdSkinRegisterCommon;
 import com.shiroha.mmdskin.maid.MaidMMDModelManager;
+import com.shiroha.mmdskin.renderer.animation.PendingAnimSignalCache;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
+import com.shiroha.mmdskin.renderer.render.MorphSyncHelper;
+import com.shiroha.mmdskin.renderer.render.StageAnimSyncHelper;
+import com.shiroha.mmdskin.ui.network.NetworkOpCode;
 import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
+import com.shiroha.mmdskin.ui.network.ServerModelRegistry;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.loading.FMLEnvironment;
 import net.minecraftforge.network.NetworkEvent;
 import net.minecraftforge.network.PacketDistributor;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /**
- * Forge 网络包处理
- * 支持动作同步和物理重置
- * 
- * 修改说明：
- * - 添加字符串参数支持，用于传输动画ID（支持中文文件名）
- * - 移除旧的 EntityPlayer_ 前缀查找逻辑
- * - 使用配置系统获取玩家模型
+ * Forge 网络包序列化与处理
  */
 public class MmdSkinNetworkPack {
+    private static final Logger logger = LogManager.getLogger();
+
     public int opCode;
     public UUID playerUUID;
-    public String animId; // 动画ID（字符串）
-    public int arg0;      // 整数参数（向后兼容）
+    public String animId;
+    public int arg0;
 
-    /**
-     * 构造函数（字符串参数）
-     */
     public MmdSkinNetworkPack(int opCode, UUID playerUUID, String animId) {
         this.opCode = opCode;
         this.playerUUID = playerUUID;
@@ -41,19 +42,13 @@ public class MmdSkinNetworkPack {
         this.arg0 = 0;
     }
 
-    /**
-     * 构造函数（整数参数）
-     */
     public MmdSkinNetworkPack(int opCode, UUID playerUUID, int arg0) {
         this.opCode = opCode;
         this.playerUUID = playerUUID;
         this.animId = "";
         this.arg0 = arg0;
     }
-    
-    /**
-     * 构造函数（女仆模型变更：entityId + modelName）
-     */
+
     public MmdSkinNetworkPack(int opCode, UUID playerUUID, int entityId, String modelName) {
         this.opCode = opCode;
         this.playerUUID = playerUUID;
@@ -61,129 +56,131 @@ public class MmdSkinNetworkPack {
         this.arg0 = entityId;
     }
 
-    /**
-     * 从缓冲区读取
-     */
+    /** 从缓冲区反序列化 */
     public MmdSkinNetworkPack(FriendlyByteBuf buffer) {
         opCode = buffer.readInt();
-        playerUUID = new UUID(buffer.readLong(), buffer.readLong());
-        
-        // 根据 opCode 决定读取字符串还是整数
-        if (opCode == 1 || opCode == 3 || opCode == 6 || opCode == 7 || opCode == 8) {
-            // opCode 1: 动作执行, opCode 3: 模型选择同步, opCode 6: 表情同步
-            // opCode 7: 舞台开始, opCode 8: 舞台结束
+        playerUUID = buffer.readUUID();
+
+        if (NetworkOpCode.isStringPayload(opCode)) {
             animId = buffer.readUtf();
             arg0 = 0;
-        } else if (opCode == 4 || opCode == 5) {
-            arg0 = buffer.readInt();   // 女仆模型/动作变更，读取 entityId
-            animId = buffer.readUtf(); // 读取 modelName/animId
+        } else if (NetworkOpCode.isEntityStringPayload(opCode)) {
+            arg0 = buffer.readInt();
+            animId = buffer.readUtf();
         } else {
             animId = "";
-            arg0 = buffer.readInt(); // 其他操作，读取整数
+            arg0 = buffer.readInt();
         }
     }
 
-    /**
-     * 写入缓冲区
-     */
-    public void Pack(FriendlyByteBuf buffer) {
+    /** 序列化到缓冲区 */
+    public void pack(FriendlyByteBuf buffer) {
         buffer.writeInt(opCode);
-        buffer.writeLong(playerUUID.getMostSignificantBits());
-        buffer.writeLong(playerUUID.getLeastSignificantBits());
-        
-        // 根据 opCode 决定写入字符串还是整数
-        if (opCode == 1 || opCode == 3 || opCode == 6 || opCode == 7 || opCode == 8) {
-            // opCode 1: 动作执行, opCode 3: 模型选择同步, opCode 6: 表情同步
-            // opCode 7: 舞台开始, opCode 8: 舞台结束
+        buffer.writeUUID(playerUUID);
+
+        if (NetworkOpCode.isStringPayload(opCode)) {
             buffer.writeUtf(animId);
-        } else if (opCode == 4 || opCode == 5) {
-            buffer.writeInt(arg0);   // 女仆模型/动作变更，写入 entityId
-            buffer.writeUtf(animId); // 写入 modelName/animId
+        } else if (NetworkOpCode.isEntityStringPayload(opCode)) {
+            buffer.writeInt(arg0);
+            buffer.writeUtf(animId);
         } else {
-            buffer.writeInt(arg0); // 其他操作，写入整数
+            buffer.writeInt(arg0);
         }
     }
 
-    /**
-     * 处理网络包
-     */
-    public void Do(Supplier<NetworkEvent.Context> ctx) {
+    /** 服务端/客户端统一入口 */
+    public void handle(Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
-            if (FMLEnvironment.dist == Dist.CLIENT) {
-                DoInClient();
+            if (ctx.get().getDirection().getReceptionSide() == net.minecraftforge.fml.LogicalSide.CLIENT) {
+                doInClient();
             } else {
-                // 服务器端：转发给所有客户端
-                MmdSkinRegisterCommon.channel.send(PacketDistributor.ALL.noArg(), this);
+                handleOnServer(ctx.get());
             }
         });
         ctx.get().setPacketHandled(true);
     }
 
-    /**
-     * 客户端处理
-     */
-    public void DoInClient() {
-        Minecraft MCinstance = Minecraft.getInstance();
-        if (MCinstance.player == null) return;
-        // 忽略自己发送的消息
-        if (playerUUID.equals(MCinstance.player.getUUID()))
+    /** 服务端处理：鉴权 + opCode 10 回传 + 转发 */
+    private void handleOnServer(NetworkEvent.Context ctx) {
+        ServerPlayer sender = ctx.getSender();
+        if (sender == null) return;
+
+        // 鉴权：声称的 UUID 必须与实际发送者一致
+        if (!sender.getUUID().equals(playerUUID)) {
+            logger.warn("UUID 不匹配，丢弃数据包: claimed={}, real={}", playerUUID, sender.getUUID());
             return;
-            
-        if (MCinstance.level == null) return;
-        Player target = MCinstance.level.getPlayerByUUID(playerUUID);
-            
+        }
+
+        // 模型选择时更新服务端注册表
+        if (opCode == NetworkOpCode.MODEL_SELECT) {
+            ServerModelRegistry.updateModel(playerUUID, animId);
+        }
+
+        // opCode 10：回传所有已注册模型给请求者，不转发
+        if (opCode == NetworkOpCode.REQUEST_ALL_MODELS) {
+            ServerModelRegistry.sendAllTo((modelOwnerUUID, modelName) ->
+                MmdSkinRegisterCommon.channel.send(
+                    PacketDistributor.PLAYER.with(() -> sender),
+                    new MmdSkinNetworkPack(NetworkOpCode.MODEL_SELECT, modelOwnerUUID, modelName)));
+            return;
+        }
+
+        // 转发给所有客户端（Forge 的 ALL 包含发送者，客户端 doInClient 会自行过滤）
+        MmdSkinRegisterCommon.channel.send(PacketDistributor.ALL.noArg(), this);
+    }
+
+    /** 客户端处理 */
+    private void doInClient() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        if (playerUUID.equals(mc.player.getUUID())) return;
+        if (mc.level == null) return;
+
+        Player target = mc.level.getPlayerByUUID(playerUUID);
+
         switch (opCode) {
-            case 1: {
-                // 执行动画（使用字符串ID）
-                if (target != null)
-                    MmdSkinRendererPlayerHelper.CustomAnim(target, animId);
-                break;
+            case NetworkOpCode.CUSTOM_ANIM -> {
+                if (target != null) MmdSkinRendererPlayerHelper.CustomAnim(target, animId);
+                com.shiroha.mmdskin.ui.follow.RemoteAnimCache.put(playerUUID, animId);
             }
-            case 3: {
-                // 模型选择同步
-                PlayerModelSyncManager.onRemotePlayerModelReceived(playerUUID, animId);
-                break;
-            }
-            case 2: {
-                // 重置物理
-                if (target != null)
+            case NetworkOpCode.RESET_PHYSICS -> {
+                if (target != null) {
                     MmdSkinRendererPlayerHelper.ResetPhysics(target);
-                break;
-            }
-            case 4: {
-                // 女仆模型变更
-                Entity maidEntity = MCinstance.level.getEntity(arg0);
-                if (maidEntity != null) {
-                    MaidMMDModelManager.bindModel(maidEntity.getUUID(), animId);
+                } else {
+                    PendingAnimSignalCache.put(playerUUID, PendingAnimSignalCache.SignalType.RESET);
                 }
-                break;
             }
-            case 5: {
-                // 女仆动作变更
-                Entity maidEntity = MCinstance.level.getEntity(arg0);
-                if (maidEntity != null) {
-                    MaidMMDModelManager.playAnimation(maidEntity.getUUID(), animId);
+            case NetworkOpCode.MODEL_SELECT -> {
+                PlayerModelSyncManager.onRemotePlayerModelReceived(playerUUID, animId);
+            }
+            case NetworkOpCode.MAID_MODEL -> {
+                Entity maidEntity = mc.level.getEntity(arg0);
+                if (maidEntity != null) MaidMMDModelManager.bindModel(maidEntity.getUUID(), animId);
+            }
+            case NetworkOpCode.MAID_ACTION -> {
+                Entity maidEntity = mc.level.getEntity(arg0);
+                if (maidEntity != null) MaidMMDModelManager.playAnimation(maidEntity.getUUID(), animId);
+            }
+            case NetworkOpCode.MORPH_SYNC -> {
+                if (target != null) MorphSyncHelper.applyRemoteMorph(target, animId);
+            }
+            case NetworkOpCode.STAGE_START -> {
+                if (target != null) StageAnimSyncHelper.startStageAnim(target, animId);
+            }
+            case NetworkOpCode.STAGE_END -> {
+                if (target != null) {
+                    StageAnimSyncHelper.endStageAnim(target);
+                } else {
+                    PendingAnimSignalCache.put(playerUUID, PendingAnimSignalCache.SignalType.STAGE_END);
                 }
-                break;
             }
-            case 6: {
-                // 表情同步
-                if (target != null)
-                    MmdSkinRendererPlayerHelper.RemoteMorph(target, animId);
-                break;
+            case NetworkOpCode.STAGE_AUDIO -> {
+                if (target != null) MmdSkinRendererPlayerHelper.StageAudioPlay(target, animId);
             }
-            case 7: {
-                // 舞台动画开始
-                if (target != null)
-                    MmdSkinRendererPlayerHelper.StageAnim(target, animId);
-                break;
+            case NetworkOpCode.STAGE_MULTI -> {
+                com.shiroha.mmdskin.ui.network.StageMultiHandler.handle(playerUUID, animId);
             }
-            case 8: {
-                // 舞台动画结束
-                if (target != null)
-                    MmdSkinRendererPlayerHelper.StageAnimEnd(target);
-                break;
-            }
+            default -> {}
         }
     }
 }

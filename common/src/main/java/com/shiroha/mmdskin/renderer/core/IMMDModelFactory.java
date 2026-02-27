@@ -11,7 +11,12 @@ import com.shiroha.mmdskin.renderer.model.ModelInfo;
 public interface IMMDModelFactory {
     
     /**
-     * 获取工厂支持的渲染模式名称
+     * 获取渲染模式分类（替代字符串匹配，OCP）
+     */
+    RenderCategory getCategory();
+    
+    /**
+     * 获取工厂支持的渲染模式名称（用于日志和 UI 显示）
      */
     String getModeName();
     
@@ -26,14 +31,11 @@ public interface IMMDModelFactory {
     boolean isAvailable();
     
     /**
-     * 检查此工厂当前是否启用
+     * 是否支持 PMD 格式模型
      */
-    boolean isEnabled();
-    
-    /**
-     * 设置此工厂是否启用
-     */
-    void setEnabled(boolean enabled);
+    default boolean supportsPMD() {
+        return true;
+    }
     
     /**
      * 创建模型实例
@@ -48,10 +50,8 @@ public interface IMMDModelFactory {
     
     /**
      * 从已加载的模型句柄创建渲染实例（Phase 2：GL 资源创建，必须在渲染线程调用）
-     * 用于两阶段异步加载：Phase 1 在后台线程调用 NativeFunc.LoadModelPMX/PMD 获取句柄，
-     * Phase 2 在渲染线程调用此方法完成 GL 资源创建。
      * 
-     * @param modelHandle 后台线程加载的模型句柄（nf.LoadModelPMX/PMD 的返回值）
+     * @param modelHandle 后台线程加载的模型句柄
      * @param modelDir 模型目录
      * @return 创建的模型实例，失败返回 null
      */

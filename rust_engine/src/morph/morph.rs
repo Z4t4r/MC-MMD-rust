@@ -39,22 +39,18 @@ impl Morph {
         }
     }
     
-    /// 获取名称
     pub fn get_name(&self) -> &str {
         &self.name
     }
     
-    /// 获取权重
     pub fn get_weight(&self) -> f32 {
         self.weight
     }
     
-    /// 设置权重
     pub fn set_weight(&mut self, weight: f32) {
         self.weight = weight;
     }
     
-    /// 重置权重
     pub fn reset(&mut self) {
         self.weight = 0.0;
     }

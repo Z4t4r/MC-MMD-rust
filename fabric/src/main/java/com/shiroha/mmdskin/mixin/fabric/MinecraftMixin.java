@@ -25,7 +25,7 @@ public abstract class MinecraftMixin {
     
     @Inject(method = "handleKeybinds", at = @At("HEAD"), cancellable = true)
     private void onHandleKeybinds(CallbackInfo ci) {
-        if (MMDCameraController.getInstance().isPlaying()) {
+        if (MMDCameraController.getInstance().shouldBlockInput()) {
             ci.cancel();
         }
     }

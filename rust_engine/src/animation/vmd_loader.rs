@@ -452,15 +452,18 @@ impl VmdAnimation {
         // 应用骨骼动画
         for bone_name in self.motion.bone_track_names() {
             if let Some(bone_idx) = bone_manager.find_bone_by_name(bone_name) {
-                let transform = self.motion.find_bone_transform(bone_name, frame_index, amount);
+                let raw = self.motion.find_bone_transform(bone_name, frame_index, amount);
+                // VMD 数据经过左手→右手转换，VRM 需要额外做 Y 轴 180° 镜像
+                let translation = bone_manager.convert_vmd_translation(raw.translation);
+                let orientation = bone_manager.convert_vmd_rotation(raw.orientation);
                 
                 if weight >= 1.0 {
-                    bone_manager.set_bone_translation(bone_idx, transform.translation);
-                    bone_manager.set_bone_rotation(bone_idx, transform.orientation);
+                    bone_manager.set_bone_translation(bone_idx, translation);
+                    bone_manager.set_bone_rotation(bone_idx, orientation);
                 } else if weight > 0.0 {
                     if let Some(bone) = bone_manager.get_bone(bone_idx) {
-                        let blended_translation = bone.animation_translate.lerp(transform.translation, weight);
-                        let blended_rotation = bone.animation_rotate.slerp(transform.orientation, weight);
+                        let blended_translation = bone.animation_translate.lerp(translation, weight);
+                        let blended_rotation = bone.animation_rotate.slerp(orientation, weight);
                         bone_manager.set_bone_translation(bone_idx, blended_translation);
                         bone_manager.set_bone_rotation(bone_idx, blended_rotation);
                     }

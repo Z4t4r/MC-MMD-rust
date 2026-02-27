@@ -16,7 +16,7 @@ public class StageConfig {
     private static final Logger logger = LogManager.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     
-    private static StageConfig instance;
+    private static volatile StageConfig instance;
     
     // 配置字段
     public String lastStagePack = "";
@@ -26,10 +26,17 @@ public class StageConfig {
     private StageConfig() {}
     
     public static StageConfig getInstance() {
-        if (instance == null) {
-            instance = load();
+        StageConfig local = instance;
+        if (local == null) {
+            synchronized (StageConfig.class) {
+                local = instance;
+                if (local == null) {
+                    local = load();
+                    instance = local;
+                }
+            }
         }
-        return instance;
+        return local;
     }
     
     /**

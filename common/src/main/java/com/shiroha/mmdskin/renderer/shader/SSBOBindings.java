@@ -17,7 +17,17 @@ import org.lwjgl.opengl.GL46C;
  */
 public class SSBOBindings {
     
-    public static final int MAX_BINDINGS = GL46C.glGetInteger(GL46C.GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS);
+    // 延迟初始化，避免类加载时无 GL 上下文导致异常
+    private static volatile int maxBindings = -1;
+    
+    public static int getMaxBindings() {
+        int val = maxBindings;
+        if (val < 0) {
+            val = GL46C.glGetInteger(GL46C.GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS);
+            maxBindings = val;
+        }
+        return val;
+    }
     
     private final int[]  bufferHandles;
     private final long[] bufferBindingOffsets;
@@ -27,11 +37,12 @@ public class SSBOBindings {
      * 构造时自动记录当前所有 SSBO 绑定点的状态
      */
     public SSBOBindings() {
-        this.bufferHandles        = new int [MAX_BINDINGS];
-        this.bufferBindingOffsets  = new long[MAX_BINDINGS];
-        this.bufferBindingSizes    = new long[MAX_BINDINGS];
+        int bindings = getMaxBindings();
+        this.bufferHandles        = new int [bindings];
+        this.bufferBindingOffsets  = new long[bindings];
+        this.bufferBindingSizes    = new long[bindings];
         
-        for (var bindingPoint = 0; bindingPoint < MAX_BINDINGS; bindingPoint++) {
+        for (var bindingPoint = 0; bindingPoint < bindings; bindingPoint++) {
             this.bufferHandles       [bindingPoint] = GL46C.glGetIntegeri(GL46C.GL_SHADER_STORAGE_BUFFER_BINDING, bindingPoint);
             this.bufferBindingOffsets [bindingPoint] = GL46C.glGetInteger64i(GL46C.GL_SHADER_STORAGE_BUFFER_START, bindingPoint);
             this.bufferBindingSizes   [bindingPoint] = GL46C.glGetInteger64i(GL46C.GL_SHADER_STORAGE_BUFFER_SIZE, bindingPoint);
@@ -42,7 +53,7 @@ public class SSBOBindings {
      * 恢复之前保存的所有 SSBO 绑定状态
      */
     public void restore() {
-        for (var bindingPoint = 0; bindingPoint < MAX_BINDINGS; bindingPoint++) {
+        for (var bindingPoint = 0; bindingPoint < bufferHandles.length; bindingPoint++) {
             var bufferHandle        = bufferHandles       [bindingPoint];
             var bufferBindingOffset = bufferBindingOffsets [bindingPoint];
             var bufferBindingSize   = bufferBindingSizes   [bindingPoint];

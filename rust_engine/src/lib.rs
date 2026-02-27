@@ -16,13 +16,15 @@ pub mod physics;
 pub mod skeleton;
 pub mod skinning;
 pub mod texture;
+pub mod vr;
 
 pub use animation::{VmdAnimation, VmdFile};
 pub use model::MmdModel;
 pub use morph::{Morph, MorphManager};
-pub use physics::{MMDPhysics, MMDRigidBody, MMDJoint};
+pub use physics::{MMDPhysics, MmdRigidBodyData, MmdJointData, PhysicsMode};
 pub use skeleton::{Bone, BoneManager, IkSolver};
 pub use texture::Texture;
+pub use vr::VrIkSolver;
 
 use thiserror::Error;
 
@@ -45,6 +47,9 @@ pub enum MmdError {
 
     #[error("VPD parse error: {0}")]
     VpdParse(String),
+
+    #[error("VRM parse error: {0}")]
+    VrmParse(String),
 }
 
 pub type Result<T> = std::result::Result<T, MmdError>;

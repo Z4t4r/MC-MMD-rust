@@ -57,13 +57,20 @@ public class ModelSettingsScreen extends Screen {
     // 拖拽状态
     private int draggingSlider = -1; // 正在拖拽的滑条索引，-1 表示无
     
+    // 快捷槽位按钮配色
+    private static final int COLOR_SLOT_BOUND = 0xFF40C080;
+    private static final int COLOR_SLOT_UNBOUND = 0xFF505560;
+    
     // 设置项定义
     private static final int SETTING_EYE_TRACKING = 0;
     private static final int SETTING_EYE_MAX_ANGLE = 1;
     private static final int SETTING_MODEL_SCALE = 2;
     
+    // 快捷槽位区域 Y 坐标缓存（用于点击检测）
+    private int quickSlotSectionY = 0;
+    
     public ModelSettingsScreen(String modelName, Screen parentScreen) {
-        super(Component.literal("模型设置"));
+        super(Component.translatable("gui.mmdskin.model_settings.title"));
         this.modelName = modelName;
         this.parentScreen = parentScreen;
         this.config = ModelConfigManager.getConfig(modelName).copy();
@@ -82,13 +89,23 @@ public class ModelSettingsScreen extends Screen {
         
         // 底部按钮
         int btnY = listBottom + 4;
-        int btnW = (PANEL_WIDTH - 16) / 2;
+        int btnW = (PANEL_WIDTH - 16) / 3;
         
-        this.addRenderableWidget(Button.builder(Component.literal("保存"), btn -> saveAndClose())
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.model_settings.save"), btn -> saveAndClose())
             .bounds(panelX + 4, btnY, btnW, 14).build());
         
-        this.addRenderableWidget(Button.builder(Component.literal("重置"), btn -> resetDefaults())
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.model_settings.reset"), btn -> resetDefaults())
             .bounds(panelX + 8 + btnW, btnY, btnW, 14).build());
+        
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.mmdskin.model_settings.anim_config"), btn -> openAnimConfig())
+            .bounds(panelX + 12 + btnW * 2, btnY, btnW, 14).build());
+    }
+    
+    /**
+     * 打开动画映射配置界面
+     */
+    private void openAnimConfig() {
+        Minecraft.getInstance().setScreen(new ModelAnimationScreen(modelName, this));
     }
     
     /**
@@ -97,7 +114,6 @@ public class ModelSettingsScreen extends Screen {
     private void saveAndClose() {
         ModelConfigManager.saveConfig(modelName, config);
         applyConfigToModel();
-        logger.info("模型 {} 配置已保存", modelName);
         this.onClose();
     }
     
@@ -106,7 +122,6 @@ public class ModelSettingsScreen extends Screen {
      */
     private void resetDefaults() {
         config = new ModelConfigData();
-        logger.info("模型 {} 配置已重置", modelName);
     }
     
     /**
@@ -124,7 +139,7 @@ public class ModelSettingsScreen extends Screen {
         MMDModelManager.Model model = MMDModelManager.GetModel(selectedModel, playerName);
         if (model == null) return;
         
-        long handle = model.model.GetModelLong();
+        long handle = model.model.getModelHandle();
         NativeFunc nf = NativeFunc.GetInst();
         
         nf.SetEyeTrackingEnabled(handle, config.eyeTrackingEnabled);
@@ -170,17 +185,17 @@ public class ModelSettingsScreen extends Screen {
         int itemW = PANEL_WIDTH - 12;
         
         // 眼球追踪分组标题
-        guiGraphics.drawString(this.font, "§7— 眼球追踪 —", itemX, y, COLOR_TEXT_DIM);
+        guiGraphics.drawString(this.font, Component.translatable("gui.mmdskin.model_settings.eye_tracking"), itemX, y, COLOR_TEXT_DIM);
         y += 12;
         
         // 眼球追踪启用开关
-        renderToggle(guiGraphics, "启用追踪", config.eyeTrackingEnabled, 
+        renderToggle(guiGraphics, Component.translatable("gui.mmdskin.model_settings.eye_tracking_enabled").getString(), config.eyeTrackingEnabled, 
                      itemX, y, itemW, mouseX, mouseY, SETTING_EYE_TRACKING);
         y += ITEM_HEIGHT + ITEM_SPACING;
         
         // 眼球最大角度滑条
         float angleDeg = (float) Math.toDegrees(config.eyeMaxAngle);
-        String angleLabel = String.format("最大角度: %.0f°", angleDeg);
+        String angleLabel = Component.translatable("gui.mmdskin.model_settings.eye_max_angle", String.format("%.0f", angleDeg)).getString();
         renderSlider(guiGraphics, angleLabel, config.eyeMaxAngle, 0.05f, 1.0f,
                      itemX, y, itemW, mouseX, mouseY, SETTING_EYE_MAX_ANGLE);
         y += ITEM_HEIGHT + ITEM_SPACING;
@@ -191,13 +206,75 @@ public class ModelSettingsScreen extends Screen {
         y += 8;
         
         // 模型分组标题
-        guiGraphics.drawString(this.font, "§7— 模型显示 —", itemX, y, COLOR_TEXT_DIM);
+        guiGraphics.drawString(this.font, Component.translatable("gui.mmdskin.model_settings.model_display"), itemX, y, COLOR_TEXT_DIM);
         y += 12;
         
         // 模型缩放滑条
-        String scaleLabel = String.format("缩放: %.2f", config.modelScale);
+        String scaleLabel = Component.translatable("gui.mmdskin.model_settings.model_scale", String.format("%.2f", config.modelScale)).getString();
         renderSlider(guiGraphics, scaleLabel, config.modelScale, 0.5f, 2.0f,
                      itemX, y, itemW, mouseX, mouseY, SETTING_MODEL_SCALE);
+        y += ITEM_HEIGHT + ITEM_SPACING;
+        
+        // 分隔线
+        y += 4;
+        guiGraphics.fill(panelX + 12, y, panelX + PANEL_WIDTH - 12, y + 1, COLOR_SEPARATOR);
+        y += 8;
+        
+        // 快捷绑定分组标题
+        guiGraphics.drawString(this.font, Component.translatable("gui.mmdskin.model_settings.quick_bind"), itemX, y, COLOR_TEXT_DIM);
+        y += 12;
+        
+        quickSlotSectionY = y;
+        renderQuickSlots(guiGraphics, itemX, y, itemW, mouseX, mouseY);
+    }
+    
+    /**
+     * 渲染快捷模型槽位按钮（每行2个，共4个）
+     */
+    private void renderQuickSlots(GuiGraphics guiGraphics, int x, int y, int w, int mouseX, int mouseY) {
+        ModelSelectorConfig selectorConfig = ModelSelectorConfig.getInstance();
+        int btnW = (w - 4) / 2;
+        int btnH = 16;
+        
+        for (int i = 0; i < ModelSelectorConfig.QUICK_SLOT_COUNT; i++) {
+            int col = i % 2;
+            int row = i / 2;
+            int btnX = x + col * (btnW + 4);
+            int btnY = y + row * (btnH + 3);
+            
+            String boundModel = selectorConfig.getQuickSlotModel(i);
+            boolean isBoundToThis = modelName.equals(boundModel);
+            boolean isBoundToOther = boundModel != null && !boundModel.isEmpty() && !isBoundToThis;
+            boolean isHovered = mouseX >= btnX && mouseX <= btnX + btnW
+                             && mouseY >= btnY && mouseY <= btnY + btnH;
+            
+            // 背景
+            int bgColor;
+            if (isBoundToThis) {
+                bgColor = COLOR_SLOT_BOUND;
+            } else if (isHovered) {
+                bgColor = COLOR_ITEM_HOVER;
+            } else {
+                bgColor = COLOR_SLOT_UNBOUND;
+            }
+            guiGraphics.fill(btnX, btnY, btnX + btnW, btnY + btnH, bgColor);
+            
+            // 标签
+            String label = Component.translatable("gui.mmdskin.model_settings.slot", i + 1).getString();
+            int labelColor = isBoundToThis ? 0xFFFFFFFF : COLOR_TEXT;
+            int labelW = this.font.width(label);
+            guiGraphics.drawString(this.font, label, btnX + (btnW - labelW) / 2, btnY + 4, labelColor);
+            
+            // 已绑定其他模型时显示小提示
+            if (isBoundToOther && isHovered) {
+                String hint = truncate(boundModel, 14);
+                int hintW = this.font.width(hint);
+                int hintX = btnX + (btnW - hintW) / 2;
+                int hintY = btnY + btnH + 1;
+                guiGraphics.fill(hintX - 2, hintY - 1, hintX + hintW + 2, hintY + 9, 0xE0182030);
+                guiGraphics.drawString(this.font, hint, hintX, hintY, COLOR_TEXT_DIM);
+            }
+        }
     }
     
     /**
@@ -295,6 +372,11 @@ public class ModelSettingsScreen extends Screen {
                 updateSliderValue(mouseX, itemX, itemW);
                 return true;
             }
+            
+            // 快捷槽位按钮点击检测
+            if (handleQuickSlotClick(mouseX, mouseY, itemX, itemW)) {
+                return true;
+            }
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
@@ -372,6 +454,45 @@ public class ModelSettingsScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+    
+    /**
+     * 处理快捷槽位按钮点击
+     */
+    private boolean handleQuickSlotClick(double mouseX, double mouseY, int x, int w) {
+        int btnW = (w - 4) / 2;
+        int btnH = 16;
+        int y = quickSlotSectionY;
+        
+        for (int i = 0; i < ModelSelectorConfig.QUICK_SLOT_COUNT; i++) {
+            int col = i % 2;
+            int row = i / 2;
+            int btnX = x + col * (btnW + 4);
+            int btnY = y + row * (btnH + 3);
+            
+            if (mouseX >= btnX && mouseX <= btnX + btnW
+                    && mouseY >= btnY && mouseY <= btnY + btnH) {
+                toggleQuickSlot(i);
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 切换快捷槽位绑定：已绑定当前模型则取消，否则绑定
+     */
+    private void toggleQuickSlot(int slot) {
+        ModelSelectorConfig selectorConfig = ModelSelectorConfig.getInstance();
+        String currentBound = selectorConfig.getQuickSlotModel(slot);
+        
+        if (modelName.equals(currentBound)) {
+            // 取消绑定
+            selectorConfig.setQuickSlotModel(slot, null);
+        } else {
+            // 绑定到此槽位
+            selectorConfig.setQuickSlotModel(slot, modelName);
+        }
     }
     
     private static String truncate(String s, int max) {

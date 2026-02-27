@@ -58,7 +58,6 @@ public class ModelConfigManager {
         cache.put(modelName, safeCopy);
         File configFile = getConfigFile(modelName);
         safeCopy.save(configFile);
-        logger.info("保存模型配置: {} (眼球角度: {})", modelName, config.eyeMaxAngle);
     }
     
     /**

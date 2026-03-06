@@ -4,6 +4,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.shiroha.mmdskin.MmdSkin;
+import com.shiroha.mmdskin.neoforge.register.MmdSkinAttachments;
 import com.shiroha.mmdskin.neoforge.register.MmdSkinRegisterCommon;
 
 import net.neoforged.bus.api.IEventBus;
@@ -17,6 +18,7 @@ public class MmdSkinNeoForge {
     public MmdSkinNeoForge(IEventBus modEventBus) {
         modEventBus.addListener(this::preInit);
         modEventBus.addListener(MmdSkinRegisterCommon::onRegisterPayloadHandlers);
+        MmdSkinAttachments.ATTACHMENT_TYPES.register(modEventBus);
     }
 
     public void preInit(FMLCommonSetupEvent event) {

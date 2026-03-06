@@ -1,10 +1,9 @@
 package com.shiroha.mmdskin.ui.selector;
 
-import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
-import com.shiroha.mmdskin.ui.network.ModelSelectorNetworkHandler;
-
 import com.shiroha.mmdskin.config.UIConstants;
 import com.shiroha.mmdskin.renderer.model.ModelInfo;
+import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
+import com.shiroha.mmdskin.ui.network.ModelSelectorNetworkHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -18,7 +17,7 @@ import java.util.List;
 
 /**
  * 模型选择界面 — 简约右侧面板风格
- * 右侧面板列出所有模型，左侧留空用于模型预览
+ * 右侧面板展示模型列表，左侧留空用于模型预览
  */
 public class ModelSelectorScreen extends Screen {
     private static final Logger logger = LogManager.getLogger();
@@ -30,20 +29,22 @@ public class ModelSelectorScreen extends Screen {
     private static final int FOOTER_HEIGHT = 20;
     private static final int ITEM_HEIGHT = 14;
     private static final int ITEM_SPACING = 1;
-    private static final int SETTINGS_BTN_SIZE = 8;
     
     // 统一简约配色
     private static final int COLOR_PANEL_BG = 0xC0101418;
     private static final int COLOR_PANEL_BORDER = 0xFF2A3A4A;
     private static final int COLOR_ITEM_HOVER = 0x30FFFFFF;
-    private static final int COLOR_ITEM_SELECTED = 0x40306040;
+    private static final int COLOR_ITEM_SELECTED = 0x3060A0D0;
     private static final int COLOR_ACCENT = 0xFF60A0D0;
     private static final int COLOR_TEXT = 0xFFDDDDDD;
     private static final int COLOR_TEXT_DIM = 0xFF888888;
-    private static final int COLOR_TEXT_SELECTED = 0xFFAAFFAA;
+    private static final int COLOR_TEXT_SELECTED = 0xFF60A0D0;
     private static final int COLOR_SEPARATOR = 0x30FFFFFF;
-    private static final int COLOR_SETTINGS_BTN = 0xFF888888;
-    private static final int COLOR_SETTINGS_BTN_HOVER = 0xFFDDDDDD;
+    private static final int COLOR_SETTINGS_BTN = 0x80FFFFFF;
+    private static final int COLOR_SETTINGS_BTN_HOVER = 0xFFFFFFFF;
+    
+    // 设置按钮尺寸
+    private static final int SETTINGS_BTN_SIZE = 10;
     
     private final List<ModelCardEntry> modelCards;
     private int scrollOffset = 0;
@@ -63,11 +64,21 @@ public class ModelSelectorScreen extends Screen {
         loadAvailableModels();
     }
 
+    // MC 1.21.1: 禁用默认背景模糊效果
+    @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    }
+
+    /**
+     * 加载所有可用的模型（使用 ModelInfo 扫描）
+     */
     private void loadAvailableModels() {
         modelCards.clear();
         
+        // 添加默认选项（使用原版渲染）
         modelCards.add(new ModelCardEntry(UIConstants.DEFAULT_MODEL_NAME, null));
         
+        // 使用 ModelInfo 扫描所有模型
         List<ModelInfo> models = ModelInfo.scanModels();
         for (ModelInfo info : models) {
             modelCards.add(new ModelCardEntry(info.getFolderName(), info));
@@ -80,6 +91,7 @@ public class ModelSelectorScreen extends Screen {
     protected void init() {
         super.init();
         
+        // 面板位置：屏幕右侧
         panelX = this.width - PANEL_WIDTH - PANEL_MARGIN;
         panelY = PANEL_MARGIN;
         panelH = this.height - PANEL_MARGIN * 2;
@@ -87,22 +99,26 @@ public class ModelSelectorScreen extends Screen {
         listTop = panelY + HEADER_HEIGHT;
         listBottom = panelY + panelH - FOOTER_HEIGHT;
         
+        // 计算滚动
         int contentHeight = modelCards.size() * (ITEM_HEIGHT + ITEM_SPACING);
         int visibleHeight = listBottom - listTop;
         maxScroll = Math.max(0, contentHeight - visibleHeight);
         scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset));
         
-        // 底部按钮
+        // 按钮区域（面板底部紧凑）
         int btnY = listBottom + 4;
         int btnW = (PANEL_WIDTH - 12) / 2;
         
-        this.addRenderableWidget(Button.builder(Component.literal("刷新"), btn -> refreshModels())
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), btn -> this.onClose())
             .bounds(panelX + 4, btnY, btnW, 14).build());
         
-        this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), btn -> this.onClose())
-            .bounds(panelX + 8 + btnW, btnY, btnW, 14).build());
+        this.addRenderableWidget(Button.builder(Component.literal("刷新"), btn -> refreshModels())
+            .bounds(panelX + 4 + btnW + 4, btnY, btnW, 14).build());
     }
 
+    /**
+     * 刷新模型列表
+     */
     private void refreshModels() {
         loadAvailableModels();
         scrollOffset = 0;
@@ -111,10 +127,14 @@ public class ModelSelectorScreen extends Screen {
         logger.info("模型列表已刷新");
     }
 
+    /**
+     * 选择模型
+     */
     private void selectModel(ModelCardEntry card) {
         this.currentModel = card.displayName;
         ModelSelectorConfig.getInstance().setSelectedModel(card.displayName);
         
+        // 通知服务器模型变更
         ModelSelectorNetworkHandler.sendModelChangeToServer(card.displayName);
         
         // 仅重载本地玩家的模型（不影响其他远程玩家的模型和动画）
@@ -129,17 +149,18 @@ public class ModelSelectorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        // 不渲染全屏背景，保持左侧透明用于模型预览
+        
         // 右侧面板背景
         guiGraphics.fill(panelX, panelY, panelX + PANEL_WIDTH, panelY + panelH, COLOR_PANEL_BG);
+        // 面板左边框（视觉分隔）
         guiGraphics.fill(panelX, panelY, panelX + 1, panelY + panelH, COLOR_PANEL_BORDER);
         
         // 头部
         renderHeader(guiGraphics);
         
-        // 模型列表（裁剪区域）
-        guiGraphics.enableScissor(panelX, listTop, panelX + PANEL_WIDTH, listBottom);
+        // 列表
         renderModelList(guiGraphics, mouseX, mouseY);
-        guiGraphics.disableScissor();
         
         // 滚动条
         renderScrollbar(guiGraphics);
@@ -147,17 +168,29 @@ public class ModelSelectorScreen extends Screen {
         super.render(guiGraphics, mouseX, mouseY, partialTick);
     }
 
+    /**
+     * 渲染头部区域
+     */
     private void renderHeader(GuiGraphics guiGraphics) {
         int cx = panelX + PANEL_WIDTH / 2;
+        
+        // 标题
         guiGraphics.drawCenteredString(this.font, this.title, cx, panelY + 4, COLOR_ACCENT);
         
-        String info = modelCards.size() - 1 + " 个模型";
+        // 统计
+        String info = (modelCards.size() - 1) + " 模型 · " + truncate(currentModel, 10);
         guiGraphics.drawCenteredString(this.font, info, cx, panelY + 16, COLOR_TEXT_DIM);
         
+        // 分隔线
         guiGraphics.fill(panelX + 8, listTop - 2, panelX + PANEL_WIDTH - 8, listTop - 1, COLOR_SEPARATOR);
     }
 
+    /**
+     * 渲染模型列表
+     */
     private void renderModelList(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        guiGraphics.enableScissor(panelX, listTop, panelX + PANEL_WIDTH, listBottom);
+        
         hoveredCardIndex = -1;
         hoveredOnSettingsBtn = false;
         
@@ -167,18 +200,22 @@ public class ModelSelectorScreen extends Screen {
             
             if (itemY + ITEM_HEIGHT < listTop || itemY > listBottom) continue;
             
+            int itemX = panelX + 6;
+            int itemW = PANEL_WIDTH - 12;
             boolean isSelected = card.displayName.equals(currentModel);
-            boolean isHovered = mouseX >= panelX && mouseX <= panelX + PANEL_WIDTH
-                             && mouseY >= Math.max(itemY, listTop) 
-                             && mouseY <= Math.min(itemY + ITEM_HEIGHT, listBottom);
+            boolean isHovered = mouseX >= itemX && mouseX <= itemX + itemW
+                             && mouseY >= Math.max(itemY, listTop) && mouseY <= Math.min(itemY + ITEM_HEIGHT, listBottom);
             
-            // 检测设置按钮悬停
+            // 判断鼠标是否悬停在设置按钮区域
+            boolean hasSettingsBtn = card.modelInfo != null;
             boolean isSettingsBtnHovered = false;
-            if (isHovered && card.modelInfo != null) {
-                int btnX = panelX + PANEL_WIDTH - SETTINGS_BTN_SIZE - 2;
+            if (isHovered && hasSettingsBtn) {
+                int btnX = itemX + itemW - SETTINGS_BTN_SIZE - 2;
                 int btnY = itemY + (ITEM_HEIGHT - SETTINGS_BTN_SIZE) / 2;
+                int clippedBtnTop = Math.max(btnY, listTop);
+                int clippedBtnBottom = Math.min(btnY + SETTINGS_BTN_SIZE, listBottom);
                 isSettingsBtnHovered = mouseX >= btnX && mouseX <= btnX + SETTINGS_BTN_SIZE
-                                   && mouseY >= btnY && mouseY <= btnY + SETTINGS_BTN_SIZE;
+                                   && mouseY >= clippedBtnTop && mouseY <= clippedBtnBottom;
             }
             
             if (isHovered) {
@@ -186,12 +223,16 @@ public class ModelSelectorScreen extends Screen {
                 hoveredOnSettingsBtn = isSettingsBtnHovered;
             }
             
-            renderItem(guiGraphics, card, panelX, itemY, PANEL_WIDTH, isSelected, isHovered, isSettingsBtnHovered);
+            renderItem(guiGraphics, card, itemX, itemY, itemW, isSelected, isHovered, isSettingsBtnHovered);
         }
+        
+        guiGraphics.disableScissor();
     }
 
-    private void renderItem(GuiGraphics guiGraphics, ModelCardEntry card, int x, int y, int w,
-                             boolean isSelected, boolean isHovered, boolean isSettingsBtnHovered) {
+    /**
+     * 渲染单个模型条目 — 简约单行/双行风格
+     */
+    private void renderItem(GuiGraphics guiGraphics, ModelCardEntry card, int x, int y, int w, boolean isSelected, boolean isHovered, boolean isSettingsBtnHovered) {
         // 背景
         if (isSelected) {
             guiGraphics.fill(x, y, x + w, y + ITEM_HEIGHT, COLOR_ITEM_SELECTED);
@@ -217,6 +258,7 @@ public class ModelSelectorScreen extends Screen {
             int btnY = y + (ITEM_HEIGHT - SETTINGS_BTN_SIZE) / 2;
             int btnColor = isSettingsBtnHovered ? COLOR_SETTINGS_BTN_HOVER : COLOR_SETTINGS_BTN;
             
+            // 齿轮图标背景
             if (isSettingsBtnHovered) {
                 guiGraphics.fill(btnX - 1, btnY - 1, btnX + SETTINGS_BTN_SIZE + 1, btnY + SETTINGS_BTN_SIZE + 1, 0x40FFFFFF);
             }
@@ -226,6 +268,9 @@ public class ModelSelectorScreen extends Screen {
         }
     }
 
+    /**
+     * 渲染滚动条
+     */
     private void renderScrollbar(GuiGraphics guiGraphics) {
         if (maxScroll <= 0) return;
         
@@ -277,10 +322,6 @@ public class ModelSelectorScreen extends Screen {
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
     }
 
     @Override

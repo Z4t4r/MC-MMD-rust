@@ -93,10 +93,22 @@ public class StageSelectScreen extends Screen {
         PathConstants.ensureStageAnimDir();
         
         // 扫描舞台包
-        stagePacks = StagePack.scan(PathConstants.getStageAnimDir());
+        stagePacks = StagePack.scan(PathConstants.getStageAnimDir(), path -> {
+            NativeFunc nf = NativeFunc.GetInst();
+            long tempAnim = nf.LoadAnimation(0, path);
+            if (tempAnim == 0) return null;
+            boolean[] result = { nf.HasCameraData(tempAnim), nf.HasBoneData(tempAnim), nf.HasMorphData(tempAnim) };
+            nf.DeleteAnimation(tempAnim);
+            return result;
+        });
         
         // 恢复上次选择
         restoreSelection(config);
+    }
+
+    // MC 1.21.1: 禁用默认背景模糊效果
+    @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
     }
     
     private void restoreSelection(StageConfig config) {
@@ -160,11 +172,6 @@ public class StageSelectScreen extends Screen {
             return stagePacks.get(selectedPackIndex);
         }
         return null;
-    }
-    
-    @Override
-    public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        // 不渲染默认背景模糊，保持游戏画面可见
     }
     
     @Override
@@ -390,7 +397,6 @@ public class StageSelectScreen extends Screen {
         int sliderY = footerY + 18;
         int sliderX = panelX + 8;
         int sliderW = PANEL_WIDTH - 16;
-        int sliderH = 10;
         
         // 滑块标签 + 数值
         String heightLabel = String.format("H: %+.2f", cameraHeightOffset);
@@ -599,8 +605,9 @@ public class StageSelectScreen extends Screen {
         long cameraAnim = 0;
         if (cameraFile != null) {
             // 如果相机文件也是动作文件之一，且已被合并进 mergedAnim，则直接用 mergedAnim
-            // 但合并不会合并相机数据，所以单独加载相机
             if (cameraFile.hasBones || cameraFile.hasMorphs) {
+                // 相机数据可能在 mergedAnim 中（如果第一个文件就是相机文件）
+                // 但合并不会合并相机数据，所以单独加载相机
                 cameraAnim = nf.LoadAnimation(0, cameraFile.path);
             } else {
                 cameraAnim = nf.LoadAnimation(0, cameraFile.path);
@@ -616,7 +623,7 @@ public class StageSelectScreen extends Screen {
             if (modelName != null && !modelName.isEmpty()) {
                 MMDModelManager.Model modelData = MMDModelManager.GetModel(modelName, playerName);
                 if (modelData != null) {
-                    modelHandle = modelData.model.GetModelLong();
+                    modelHandle = modelData.model.getModelHandle();
                     nf.TransitionLayerTo(modelHandle, 0, mergedAnim, 0.3f);
                 }
             }

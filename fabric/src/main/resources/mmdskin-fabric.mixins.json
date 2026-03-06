@@ -4,16 +4,18 @@
   "package": "com.shiroha.mmdskin.mixin.fabric",
   "compatibilityLevel": "JAVA_21",
   "refmap": "mmdskin-fabric-refmap.json",
-  "mixins": [],
+  "mixins": [
+    "KeyMappingAccessor"
+  ],
   "client": [
     "FabricPlayerRendererMixin",
     "CameraMixin",
     "GameRendererMixin",
-    "KeyMappingAccessor",
     "LevelRendererMixin",
     "ItemInHandRendererMixin",
     "MinecraftMixin",
-    "MouseHandlerMixin"
+    "MouseHandlerMixin",
+    "EntityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

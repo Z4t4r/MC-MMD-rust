@@ -14,12 +14,12 @@ import java.lang.reflect.Method;
 public class IrisCompat {
     private static final Logger logger = LogManager.getLogger();
     
-    private static Boolean irisPresent = null;
+    private static volatile Boolean irisPresent = null;
     private static Method isShaderPackInUseMethod = null;
     private static Object irisApiInstance = null;
-
+    
     // 阴影渲染状态检测（反射）
-    private static boolean shadowStateDetected = false;
+    private static volatile boolean shadowStateDetected = false;
     private static Method areShadowsBeingRenderedMethod = null;
     
     /**

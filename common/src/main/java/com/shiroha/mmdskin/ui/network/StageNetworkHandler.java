@@ -41,8 +41,12 @@ public class StageNetworkHandler {
      */
     public static void sendStageStart(String stageData) {
         if (stageStartSender != null) {
-            stageStartSender.accept(stageData);
-            logger.info("广播舞台开始: {}", stageData);
+            try {
+                stageStartSender.accept(stageData);
+                logger.info("广播舞台开始: {}", stageData);
+            } catch (Exception e) {
+                logger.error("广播舞台开始失败", e);
+            }
         } else {
             logger.debug("舞台网络发送器未设置，跳过广播（单人模式）");
         }
@@ -53,8 +57,12 @@ public class StageNetworkHandler {
      */
     public static void sendStageEnd() {
         if (stageEndSender != null) {
-            stageEndSender.run();
-            logger.info("广播舞台结束");
+            try {
+                stageEndSender.run();
+                logger.info("广播舞台结束");
+            } catch (Exception e) {
+                logger.error("广播舞台结束失败", e);
+            }
         } else {
             logger.debug("舞台网络发送器未设置，跳过广播（单人模式）");
         }

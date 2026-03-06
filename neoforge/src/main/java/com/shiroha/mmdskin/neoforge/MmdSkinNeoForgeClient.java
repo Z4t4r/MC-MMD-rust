@@ -4,6 +4,7 @@ import com.shiroha.mmdskin.MmdSkin;
 import com.shiroha.mmdskin.MmdSkinClient;
 import com.shiroha.mmdskin.neoforge.config.MmdSkinConfig;
 import com.shiroha.mmdskin.neoforge.maid.MaidRenderEventHandler;
+import com.shiroha.mmdskin.neoforge.maid.MaidSyncEventHandler;
 import com.shiroha.mmdskin.neoforge.register.MmdSkinRegisterClient;
 import com.shiroha.mmdskin.renderer.model.MMDModelOpenGL;
 
@@ -58,6 +59,7 @@ public class MmdSkinNeoForgeClient {
         
         // 注册女仆渲染事件处理器（TouhouLittleMaid 联动）
         NeoForge.EVENT_BUS.register(new MaidRenderEventHandler());
+        NeoForge.EVENT_BUS.register(MaidSyncEventHandler.class);
         
         MmdSkinClient.logger.info("MMD Skin NeoForge 客户端初始化成功");
     }

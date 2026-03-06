@@ -34,7 +34,7 @@ public interface IMMDModel {
      * @param anim 动画句柄
      * @param layer 动画层
      */
-    void ChangeAnim(long anim, long layer);
+    void changeAnim(long anim, long layer);
     
     /**
      * 带过渡地切换动画
@@ -43,31 +43,37 @@ public interface IMMDModel {
      * @param layer 动画层
      * @param transitionTime 过渡时间（秒）
      */
-    void TransitionAnim(long anim, long layer, float transitionTime);
+    void transitionAnim(long anim, long layer, float transitionTime);
+
+    /**
+     * 设置动画层是否循环播放
+     * @param layer 动画层
+     * @param loop true=循环，false=播放到尾帧后停留
+     */
+    default void setLayerLoop(long layer, boolean loop) {}
 
     /**
      * 重置物理模拟
      */
-    void ResetPhysics();
+    void resetPhysics();
 
     /**
      * 获取模型本地句柄
      */
-    long GetModelLong();
+    long getModelHandle();
 
     /**
      * 获取模型目录路径
      */
-    String GetModelDir();
-
+    String getModelDir();
+    
     /**
      * 获取模型名称（文件夹名）
      * 默认实现从 modelDir 路径中提取最后一段目录名
      */
     default String getModelName() {
-        String dir = GetModelDir();
+        String dir = getModelDir();
         if (dir == null || dir.isEmpty()) return "";
-        // 兼容 / 和 \ 分隔符
         dir = dir.replace('\\', '/');
         if (dir.endsWith("/")) dir = dir.substring(0, dir.length() - 1);
         int lastSlash = dir.lastIndexOf('/');

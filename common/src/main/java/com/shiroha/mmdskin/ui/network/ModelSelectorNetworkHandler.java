@@ -26,8 +26,12 @@ public class ModelSelectorNetworkHandler {
      */
     public static void sendModelChangeToServer(String modelName) {
         if (networkSender != null) {
-            networkSender.accept(modelName);
-            logger.info("发送模型变更到服务器: " + modelName);
+            try {
+                networkSender.accept(modelName);
+                logger.debug("发送模型变更到服务器: {}", modelName);
+            } catch (Exception e) {
+                logger.error("发送模型变更失败", e);
+            }
         } else {
             logger.warn("网络发送器未设置，无法发送模型变更");
         }

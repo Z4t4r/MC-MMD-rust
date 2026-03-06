@@ -15,7 +15,7 @@ use crate::texture::load_texture;
 
 use super::{register_animation, register_model, register_texture, ANIMATIONS, MODELS, TEXTURES};
 
-const VERSION: &str = "v1.0.2";
+const VERSION: &str = "v1.0.3";
 
 // ============================================================================
 // 基础函数
@@ -1785,7 +1785,7 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_CopyBoneIndicesToBuff
         if ptr.is_null() {
             return 0;
         }
-
+        
         let dst = match env.get_direct_buffer_address(&buffer) {
             Ok(p) => p,
             Err(_) => return 0,
@@ -1838,7 +1838,7 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_CopyBoneWeightsToBuff
         if ptr.is_null() {
             return 0;
         }
-
+        
         let dst = match env.get_direct_buffer_address(&buffer) {
             Ok(p) => p,
             Err(_) => return 0,
@@ -1891,7 +1891,7 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_CopyOriginalPositions
         if ptr.is_null() {
             return 0;
         }
-
+        
         let dst = match env.get_direct_buffer_address(&buffer) {
             Ok(p) => p,
             Err(_) => return 0,
@@ -1944,7 +1944,7 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_CopyOriginalNormalsTo
         if ptr.is_null() {
             return 0;
         }
-
+        
         let dst = match env.get_direct_buffer_address(&buffer) {
             Ok(p) => p,
             Err(_) => return 0,
@@ -2599,70 +2599,40 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_CopyMaterialMorphResu
 
 // ==================== 物理配置相关 ====================
 
-/// 设置全局物理配置（实时调整）
+/// 设置全局物理配置（Bullet3，实时调整）
 #[no_mangle]
-#[allow(clippy::too_many_arguments)]
 pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_SetPhysicsConfig(
     _env: JNIEnv,
     _class: JClass,
+    enabled: jboolean,
     gravity_y: jfloat,
     physics_fps: jfloat,
     max_substep_count: jint,
-    solver_iterations: jint,
-    pgs_iterations: jint,
-    max_corrective_velocity: jfloat,
-    linear_damping_scale: jfloat,
-    angular_damping_scale: jfloat,
-    mass_scale: jfloat,
-    linear_spring_stiffness_scale: jfloat,
-    _angular_spring_stiffness_scale: jfloat,
-    _linear_spring_damping_factor: jfloat,
-    _angular_spring_damping_factor: jfloat,
     inertia_strength: jfloat,
     max_linear_velocity: jfloat,
     max_angular_velocity: jfloat,
-    _bust_physics_enabled: jboolean,
-    _bust_linear_damping_scale: jfloat,
-    _bust_angular_damping_scale: jfloat,
-    _bust_mass_scale: jfloat,
-    _bust_linear_spring_stiffness_scale: jfloat,
-    _bust_angular_spring_stiffness_scale: jfloat,
-    _bust_linear_spring_damping_factor: jfloat,
-    _bust_angular_spring_damping_factor: jfloat,
-    _bust_clamp_inward: jboolean,
     joints_enabled: jboolean,
     debug_log: jboolean,
 ) {
     use crate::physics::config::{PhysicsConfig, set_config};
-    
-    // 旧参数映射：
-    // - linear_spring_stiffness_scale → spring_stiffness_scale
-    // - 其他弹簧/胸部参数均已废弃（胸部现在使用统一的 6DOF 弹簧系统）
+
     let config = PhysicsConfig {
+        enabled: enabled != 0,
         gravity_y,
         physics_fps,
         max_substep_count: max_substep_count as i32,
-        solver_iterations: solver_iterations as usize,
-        pgs_iterations: pgs_iterations as usize,
-        max_corrective_velocity,
-        linear_damping_scale,
-        angular_damping_scale,
-        mass_scale,
-        spring_stiffness_scale: linear_spring_stiffness_scale,
         inertia_strength,
         max_linear_velocity,
         max_angular_velocity,
         joints_enabled: joints_enabled != 0,
         debug_log: debug_log != 0,
     };
-    
+
     set_config(config);
-    
+
     if debug_log != 0 {
-        log::info!("[物理配置] 已更新: 重力={}, FPS={}, 阻尼={}/{}, 弹簧缩放={}", 
-            gravity_y, physics_fps, 
-            linear_damping_scale, angular_damping_scale,
-            linear_spring_stiffness_scale);
+        log::info!("[Bullet3 物理配置] 重力={}, FPS={}, 惯性={}", 
+            gravity_y, physics_fps, inertia_strength);
     }
 }
 
@@ -2735,9 +2705,9 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_GetEyeBonePosition(
     }
 }
 
-// ================================================================
+// ============================================================================
 // 批量子网格元数据（G3 优化）
-// ================================================================
+// ============================================================================
 
 /// 批量获取所有子网格的渲染元数据，消除 Java 侧逐子网格 JNI 调用
 /// 每子网格 20 字节：materialID(i32) + beginIndex(i32) + vertexCount(i32) + alpha(f32) + isVisible(u8) + bothFace(u8) + pad(2)
@@ -2769,9 +2739,9 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_BatchGetSubMeshData(
     }
 }
 
-// ================================================================
+// ============================================================================
 // NativeRender MC 顶点构建（P2-9 优化）
-// ================================================================
+// ============================================================================
 
 /// 在 Rust 侧直接构建 MC NEW_ENTITY 格式的交错顶点数据
 ///

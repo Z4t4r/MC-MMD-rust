@@ -30,7 +30,7 @@ public class ModelConfigManager {
      * @return 模型配置，不存在则返回默认值
      */
     public static ModelConfigData getConfig(String modelName) {
-        if (modelName == null || modelName.isEmpty()
+        if (modelName == null || modelName.isEmpty() 
                 || modelName.equals(UIConstants.DEFAULT_MODEL_NAME)) {
             return new ModelConfigData();
         }
@@ -49,7 +49,7 @@ public class ModelConfigManager {
      * @param config 配置数据
      */
     public static void saveConfig(String modelName, ModelConfigData config) {
-        if (modelName == null || modelName.isEmpty()
+        if (modelName == null || modelName.isEmpty() 
                 || modelName.equals(UIConstants.DEFAULT_MODEL_NAME)) {
             return;
         }

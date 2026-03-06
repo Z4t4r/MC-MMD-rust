@@ -27,7 +27,7 @@ public final class EyeTrackingHelper {
     
     /**
      * 更新眼球追踪，使模型眼睛看向摄像头（使用模型独立配置）
-     *
+     * 
      * @param nf NativeFunc 实例
      * @param modelHandle 模型句柄
      * @param entity 实体
@@ -35,7 +35,7 @@ public final class EyeTrackingHelper {
      * @param tickDelta 插值因子
      * @param modelName 模型名称（用于读取模型独立配置）
      */
-    public static void updateEyeTracking(NativeFunc nf, long modelHandle,
+    public static void updateEyeTracking(NativeFunc nf, long modelHandle, 
             LivingEntity entity, float entityYaw, float tickDelta, String modelName) {
         
         // 读取模型独立配置
@@ -61,7 +61,7 @@ public final class EyeTrackingHelper {
     /**
      * 眼球追踪内部实现
      */
-    private static void updateEyeTrackingInternal(NativeFunc nf, long modelHandle,
+    private static void updateEyeTrackingInternal(NativeFunc nf, long modelHandle, 
             LivingEntity entity, float entityYaw, float tickDelta, float maxAngle) {
         
         Minecraft mc = Minecraft.getInstance();

@@ -8,9 +8,9 @@ import net.minecraft.client.CameraType;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.PauseScreen;
-import net.minecraft.network.chat.Component;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import net.minecraft.network.chat.Component;
 import org.joml.Vector3f;
 
 /**
@@ -114,6 +114,13 @@ public class MMDCameraController {
     public static MMDCameraController getInstance() {
         return INSTANCE;
     }
+
+    /**
+     * 判断当前是否处于舞台模式
+     */
+    public boolean isInStageMode() {
+        return state != StageState.INACTIVE;
+    }
     
     // ==================== 生命周期方法 ====================
     
@@ -136,6 +143,11 @@ public class MMDCameraController {
             this.anchorY = mc.player.getY();
             this.anchorZ = mc.player.getZ();
             this.anchorYaw = mc.player.getYRot();
+            // 重置玩家朝向，确保进入舞台时面向正前方
+            mc.player.setXRot(0.0f);
+            mc.player.setYRot(this.anchorYaw);
+            mc.player.yHeadRot = this.anchorYaw;
+            mc.player.yBodyRot = this.anchorYaw;
         }
         
         // 重载模型（清除上次播放的残留姿势，仅本地玩家）
@@ -650,11 +662,11 @@ public class MMDCameraController {
     public boolean isStagePlayingModel(long handle) {
         return state == StageState.PLAYING && modelHandle != 0 && modelHandle == handle;
     }
-
+    
     public float getAnchorYaw() {
         return anchorYaw;
     }
-
+    
     public boolean isCinematicMode() {
         return cinematicMode;
     }

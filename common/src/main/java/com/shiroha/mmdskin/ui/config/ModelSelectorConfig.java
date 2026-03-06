@@ -1,11 +1,10 @@
 package com.shiroha.mmdskin.ui.config;
 
-import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
-
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.shiroha.mmdskin.config.PathConstants;
 import com.shiroha.mmdskin.config.UIConstants;
+import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,6 +59,11 @@ public class ModelSelectorConfig {
                     // 验证数据
                     if (data == null || data.playerModels == null) {
                         throw new IOException("配置数据无效");
+                    }
+                    
+                    // 兼容旧配置
+                    if (data.quickModelSlots == null) {
+                        data.quickModelSlots = new ConcurrentHashMap<>();
                     }
                     
                     logger.info("模型选择配置加载成功 ({} 个玩家)", data.playerModels.size());
@@ -196,11 +200,39 @@ public class ModelSelectorConfig {
         return new ConcurrentHashMap<>(data.playerModels);
     }
     
-    /**
-     * 配置数据类（线程安全）
-     */
+    // ==================== 快捷模型槽位 ====================
+    
+    public static final int QUICK_SLOT_COUNT = 4;
+    
+    public String getQuickSlotModel(int slot) {
+        if (slot < 0 || slot >= QUICK_SLOT_COUNT) return null;
+        String key = String.valueOf(slot);
+        return data.quickModelSlots.get(key);
+    }
+    
+    public void setQuickSlotModel(int slot, String modelName) {
+        if (slot < 0 || slot >= QUICK_SLOT_COUNT) return;
+        String key = String.valueOf(slot);
+        if (modelName == null || modelName.isEmpty()) {
+            data.quickModelSlots.remove(key);
+        } else {
+            data.quickModelSlots.put(key, modelName);
+        }
+        save();
+        logger.info("快捷模型槽位 {} 绑定: {}", slot + 1, modelName);
+    }
+    
+    public int getQuickSlotForModel(String modelName) {
+        if (modelName == null) return -1;
+        for (int i = 0; i < QUICK_SLOT_COUNT; i++) {
+            String bound = data.quickModelSlots.get(String.valueOf(i));
+            if (modelName.equals(bound)) return i;
+        }
+        return -1;
+    }
+    
     private static class ConfigData {
-        // 使用 ConcurrentHashMap 保证线程安全
         Map<String, String> playerModels = new ConcurrentHashMap<>();
+        Map<String, String> quickModelSlots = new ConcurrentHashMap<>();
     }
 }

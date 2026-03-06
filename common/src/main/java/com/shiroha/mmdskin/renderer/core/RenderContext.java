@@ -72,7 +72,7 @@ public class RenderContext {
             .sceneType(SceneType.INVENTORY)
             .mirror(true)
             .build();
-
+    
     /** 第一人称世界渲染上下文 */
     public static final RenderContext FIRST_PERSON = new Builder()
             .sceneType(SceneType.WORLD)

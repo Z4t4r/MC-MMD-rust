@@ -4,6 +4,8 @@ import java.util.UUID;
 
 import com.shiroha.mmdskin.maid.MaidMMDModelManager;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
+import com.shiroha.mmdskin.renderer.render.MorphSyncHelper;
+import com.shiroha.mmdskin.renderer.render.StageAnimSyncHelper;
 import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -86,12 +88,20 @@ public class MmdSkinNetworkPack {
                     MaidMMDModelManager.playAnimation(maidEntity.getUUID(), payload.stringArg());
                 break;
             }
+            case 6: {
+                // 表情同步（远程玩家）
+                if (mc.level == null) return;
+                Player target = mc.level.getPlayerByUUID(playerUUID);
+                if (target != null)
+                    MorphSyncHelper.applyRemoteMorph(target, payload.stringArg());
+                break;
+            }
             case 7: {
                 // 舞台动画开始（远程玩家）
                 if (mc.level == null) return;
                 Player target = mc.level.getPlayerByUUID(playerUUID);
                 if (target != null)
-                    MmdSkinRendererPlayerHelper.StageAnimStart(target, payload.stringArg());
+                    StageAnimSyncHelper.startStageAnim(target, payload.stringArg());
                 break;
             }
             case 8: {
@@ -99,15 +109,15 @@ public class MmdSkinNetworkPack {
                 if (mc.level == null) return;
                 Player target = mc.level.getPlayerByUUID(playerUUID);
                 if (target != null)
-                    MmdSkinRendererPlayerHelper.StageAnimEnd(target);
+                    StageAnimSyncHelper.endStageAnim(target);
                 break;
             }
-            case 6: {
-                // 表情同步（远程玩家）
+            case 9: {
+                // 远程玩家舞台音频
                 if (mc.level == null) return;
                 Player target = mc.level.getPlayerByUUID(playerUUID);
                 if (target != null)
-                    MmdSkinRendererPlayerHelper.RemoteMorph(target, payload.stringArg());
+                    MmdSkinRendererPlayerHelper.StageAudioPlay(target, payload.stringArg());
                 break;
             }
         }

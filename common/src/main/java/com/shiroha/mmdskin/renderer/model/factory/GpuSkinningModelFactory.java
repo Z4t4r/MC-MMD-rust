@@ -1,7 +1,9 @@
 package com.shiroha.mmdskin.renderer.model.factory;
 
+import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
 import com.shiroha.mmdskin.renderer.core.IMMDModelFactory;
+import com.shiroha.mmdskin.renderer.core.RenderCategory;
 import com.shiroha.mmdskin.renderer.model.MMDModelGpuSkinning;
 
 import org.apache.logging.log4j.LogManager;
@@ -19,7 +21,10 @@ public class GpuSkinningModelFactory implements IMMDModelFactory {
     /** 优先级：中等 */
     private static final int PRIORITY = 10;
     
-    private boolean enabled = false;
+    @Override
+    public RenderCategory getCategory() {
+        return RenderCategory.GPU_SKINNING;
+    }
     
     @Override
     public String getModeName() {
@@ -33,20 +38,10 @@ public class GpuSkinningModelFactory implements IMMDModelFactory {
     
     @Override
     public boolean isAvailable() {
-        // 不做前置版本检查，让着色器初始化时自己检测
-        // Minecraft 创建 3.2 Core Profile 但硬件可能支持 SSBO 扩展
+        // Android GL 翻译层（gl4es/ANGLE）不支持 OpenGL 4.3 Compute Shader
+        if (NativeFunc.isAndroid()) return false;
+        // 桌面端不做前置版本检查，让着色器初始化时自己检测
         return true;
-    }
-    
-    @Override
-    public boolean isEnabled() {
-        return enabled;
-    }
-    
-    @Override
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-        logger.debug("GPU 蒙皮工厂: {}", enabled ? "启用" : "禁用");
     }
     
     @Override

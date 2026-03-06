@@ -16,22 +16,29 @@ public class StageConfig {
     private static final Logger logger = LogManager.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     
-    private static StageConfig instance;
-
+    private static volatile StageConfig instance;
+    
     // 配置字段
     public String lastStagePack = "";
     public boolean cinematicMode = true;
     public float cameraHeightOffset = 0.0f; // 镜头高度偏移（MC单位，正值=抬高）
-
+    
     private StageConfig() {}
-
+    
     public static StageConfig getInstance() {
-        if (instance == null) {
-            instance = load();
+        StageConfig local = instance;
+        if (local == null) {
+            synchronized (StageConfig.class) {
+                local = instance;
+                if (local == null) {
+                    local = load();
+                    instance = local;
+                }
+            }
         }
-        return instance;
+        return local;
     }
-
+    
     /**
      * 从文件加载配置
      */
@@ -50,7 +57,7 @@ public class StageConfig {
         }
         return new StageConfig();
     }
-
+    
     /**
      * 保存配置到文件
      */

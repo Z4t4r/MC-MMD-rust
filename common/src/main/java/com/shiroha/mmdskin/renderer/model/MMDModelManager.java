@@ -1,12 +1,14 @@
 package com.shiroha.mmdskin.renderer.model;
 
-import com.shiroha.mmdskin.MmdSkinClient;
 import com.shiroha.mmdskin.NativeFunc;
+import com.shiroha.mmdskin.config.ModelConfigData;
+import com.shiroha.mmdskin.config.ModelConfigManager;
 import com.shiroha.mmdskin.renderer.animation.MMDAnimManager;
 import com.shiroha.mmdskin.renderer.core.EntityAnimState;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
 import com.shiroha.mmdskin.renderer.core.IrisCompat;
 import com.shiroha.mmdskin.renderer.core.ModelCache;
+import com.shiroha.mmdskin.renderer.core.FirstPersonManager;
 import com.shiroha.mmdskin.renderer.core.RenderModeManager;
 import com.shiroha.mmdskin.renderer.model.factory.ModelFactoryRegistry;
 import com.shiroha.mmdskin.renderer.resource.MMDTextureManager;
@@ -20,7 +22,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,38 +41,37 @@ public class MMDModelManager {
     static final Logger logger = LogManager.getLogger();
     
     private static ModelCache<Model> modelCache;
-
+    
     // ===== 异步加载系统 =====
-
+    
     /** 后台加载线程池（单线程，避免同时加载多个大模型占满内存） */
     private static final ExecutorService loadingExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "MMD-ModelLoader");
         t.setDaemon(true);
         return t;
     });
-
+    
     /** 后台加载结果 */
     static class AsyncLoadResult {
         final long modelHandle;
         final ModelInfo modelInfo;
         final String modelName;
-
+        
         AsyncLoadResult(long modelHandle, ModelInfo modelInfo, String modelName) {
             this.modelHandle = modelHandle;
             this.modelInfo = modelInfo;
             this.modelName = modelName;
         }
     }
-
+    
     /** 正在后台加载的任务：fullCacheKey -> Future */
     private static final ConcurrentHashMap<String, Future<AsyncLoadResult>> pendingLoads = new ConcurrentHashMap<>();
-
+    
     /** 已标记失败的 key（防止反复提交失败的加载任务） */
     private static final ConcurrentHashMap<String, Long> failedLoads = new ConcurrentHashMap<>();
     private static final long FAILED_RETRY_INTERVAL_MS = 10_000; // 失败后 10 秒内不重试
-
-    /** 加载代次：每次 cancel 时递增，后台任务完成后检查代次是否匹配，不匹配则自行清理句柄 */
-    private static final AtomicLong loadGeneration = new AtomicLong(0);
+    
+    
 
     public static void Init() {
         // 先注册工厂，再初始化 RenderModeManager
@@ -84,7 +84,7 @@ public class MMDModelManager {
 
     /**
      * 获取模型（带缓存、异步加载和自动清理）
-     *
+     * 
      * 两阶段异步加载流程：
      * 1. 缓存命中 → 直接返回
      * 2. 缓存未命中 → 提交 Phase 1 到后台线程（nf.LoadModelPMX，最重的 Rust 计算）→ 返回 null
@@ -98,19 +98,19 @@ public class MMDModelManager {
         if (entry != null) {
             return entry.value;
         }
-
+        
         // 阴影 pass 期间不创建新模型，也不启动后台加载
         if (IrisCompat.isRenderingShadows()) {
             return null;
         }
-
+        
         // 2. 检查是否有后台加载已完成
         Future<AsyncLoadResult> future = pendingLoads.get(fullCacheKey);
         if (future != null) {
             if (!future.isDone()) {
                 return null; // 仍在加载中
             }
-
+            
             // 后台加载完成，执行 Phase 2（渲染线程上的 GL 资源创建）
             pendingLoads.remove(fullCacheKey);
             try {
@@ -120,7 +120,7 @@ public class MMDModelManager {
                     markFailed(fullCacheKey);
                     return null;
                 }
-
+                
                 return finalizeModelOnRenderThread(fullCacheKey, result);
             } catch (Exception e) {
                 logger.error("获取后台加载结果失败: {}", fullCacheKey, e);
@@ -128,29 +128,27 @@ public class MMDModelManager {
                 return null;
             }
         }
-
-        // 3. 检查是否在冷却期内
+        
+        // 3. 检查是否在失败冷却期内
         Long failedTime = failedLoads.get(fullCacheKey);
-        if (failedTime != null) {
-            if (System.currentTimeMillis() - failedTime < FAILED_RETRY_INTERVAL_MS) {
-                return null; // 冷却期内不重试
-            }
-            failedLoads.remove(fullCacheKey);
-        }
-
-        // 4. 提交后台加载
-        modelCache.checkAndClean(MMDModelManager::disposeModel);
-
-        ModelInfo modelInfo = ModelInfo.findByFolderName(modelName);
-        if (modelInfo == null) {
-            logger.warn("模型未找到: " + modelName);
+        if (failedTime != null && (System.currentTimeMillis() - failedTime) < FAILED_RETRY_INTERVAL_MS) {
             return null;
         }
-
+        failedLoads.remove(fullCacheKey);
+        
+        // 4. 缓存未命中且无后台任务 → 启动 Phase 1 后台加载
+        modelCache.checkAndClean(MMDModelManager::disposeModel);
+        
+        ModelInfo modelInfo = ModelInfo.findByFolderName(modelName);
+        if (modelInfo == null) {
+            logger.warn("模型未找到: {}", modelName);
+            return null;
+        }
+        
         startBackgroundLoad(fullCacheKey, modelInfo, modelName);
         return null;
     }
-
+    
     /**
      * Phase 1：在后台线程执行 Rust 模型加载（最重的计算）
      */
@@ -159,46 +157,47 @@ public class MMDModelManager {
         if (pendingLoads.containsKey(fullCacheKey)) {
             return;
         }
+        
         logger.info("[异步加载] 开始后台加载模型: {} ({})", modelName, modelInfo.getModelFileName());
         long startTime = System.currentTimeMillis();
-        final long myGeneration = loadGeneration.get();
-
+        
         Future<AsyncLoadResult> future = loadingExecutor.submit(() -> {
             long handle = 0;
             try {
                 NativeFunc nf = NativeFunc.GetInst();
-                if (modelInfo.isPMD()) {
+                if (modelInfo.isVRM()) {
+                    handle = nf.LoadModelVRM(modelInfo.getModelFilePath(), modelInfo.getFolderPath(), 3);
+                } else if (modelInfo.isPMD()) {
                     handle = nf.LoadModelPMD(modelInfo.getModelFilePath(), modelInfo.getFolderPath(), 3);
                 } else {
                     handle = nf.LoadModelPMX(modelInfo.getModelFilePath(), modelInfo.getFolderPath(), 3);
                 }
-
+                
+                long elapsed = System.currentTimeMillis() - startTime;
                 if (handle == 0) {
-                    long elapsed = System.currentTimeMillis() - startTime;
                     logger.error("[异步加载] 后台加载失败 ({}ms): {}", elapsed, modelName);
                     return null;
                 }
-
-                // 检查是否已被取消（代次不匹配 = 加载期间发生了 cancel）
-                if (loadGeneration.get() != myGeneration) {
+                
+                // 检查是否已被取消（key 被从 pendingLoads 中移除，或被 cancel(true) 中断）
+                if (!pendingLoads.containsKey(fullCacheKey) || Thread.interrupted()) {
                     logger.info("[异步加载] 后台任务已被取消，释放句柄: {}", modelName);
                     nf.DeleteModel(handle);
                     return null;
                 }
-
-                long elapsed = System.currentTimeMillis() - startTime;
+                
                 logger.info("[异步加载] 模型解析完成 ({}ms)，开始预解码纹理: {}", elapsed, modelName);
-
+                
                 // Phase 1.5：预解码所有材质纹理（Rust 解码图片，不涉及 GL）
                 preloadModelTextures(nf, handle, modelInfo.getFolderPath());
-
+                
                 // 再次检查取消状态（纹理预解码可能耗时较长）
-                if (loadGeneration.get() != myGeneration) {
+                if (!pendingLoads.containsKey(fullCacheKey) || Thread.interrupted()) {
                     logger.info("[异步加载] 后台任务已被取消（纹理预解码后），释放句柄: {}", modelName);
                     nf.DeleteModel(handle);
                     return null;
                 }
-
+                
                 long totalElapsed = System.currentTimeMillis() - startTime;
                 logger.info("[异步加载] 后台加载全部完成 ({}ms): {}", totalElapsed, modelName);
                 return new AsyncLoadResult(handle, modelInfo, modelName);
@@ -212,30 +211,35 @@ public class MMDModelManager {
                 return null;
             }
         });
-
-        pendingLoads.put(fullCacheKey, future);
+        
+        // 原子放入：避免连续两帧重复提交同一模型的加载任务
+        if (pendingLoads.putIfAbsent(fullCacheKey, future) != null) {
+            future.cancel(false);
+        }
     }
-
+    
     /**
      * Phase 1.5：在后台线程预解码所有材质纹理（不涉及 GL，可在任意线程调用）
+     * 遍历模型的所有材质，通过 Rust 解码图片文件，将像素数据拷贝到 Java ByteBuffer 缓存。
+     * Phase 2 的 GetTexture() 会检测到预解码数据，只做 GL 上传（极快）。
      */
     private static void preloadModelTextures(NativeFunc nf, long modelHandle, String modelDir) {
         try {
             int matCount = (int) nf.GetMaterialCount(modelHandle);
             int preloaded = 0;
-
+            
             for (int i = 0; i < matCount; i++) {
                 String texPath = nf.GetMaterialTex(modelHandle, i);
                 if (texPath == null || texPath.isEmpty()) continue;
-
-                // Rust loader 已将路径组合为绝对路径
+                
+                // Rust loader 已将路径组合为绝对路径，所有模型类都直接使用该路径
                 MMDTextureManager.preloadTexture(texPath);
                 preloaded++;
             }
-
+            
             // lightMap 也预解码
             MMDTextureManager.preloadTexture(modelDir + "/lightMap.png");
-
+            
             if (preloaded > 0) {
                 logger.info("[异步加载] 预解码 {} 个材质纹理", preloaded);
             }
@@ -249,22 +253,22 @@ public class MMDModelManager {
      */
     private static Model finalizeModelOnRenderThread(String fullCacheKey, AsyncLoadResult result) {
         long startTime = System.currentTimeMillis();
-
+        
         try {
             IMMDModel m = RenderModeManager.createModelFromHandle(
                 result.modelHandle, result.modelInfo.getFolderPath(), result.modelInfo.isPMD());
-
+            
             if (m == null) {
                 logger.error("[异步加载] GL 资源创建失败，释放模型句柄: {}", result.modelName);
                 NativeFunc.GetInst().DeleteModel(result.modelHandle);
                 markFailed(fullCacheKey);
                 return null;
             }
-
+            
             MMDAnimManager.AddModel(m);
             Model model = createModelWrapper(fullCacheKey, m, result.modelName);
             modelCache.put(fullCacheKey, model);
-
+            
             long elapsed = System.currentTimeMillis() - startTime;
             logger.info("[异步加载] GL 资源创建完成 ({}ms): {} (缓存: {})", elapsed, fullCacheKey, modelCache.size());
             return model;
@@ -306,11 +310,7 @@ public class MMDModelManager {
      * @param modelName 模型名称
      */
     public static void forceReloadModel(String modelName) {
-        // 取消该模型的后台加载任务
         String prefix = modelName + "_";
-        // 递增代次，让正在运行的后台任务自行清理
-        loadGeneration.incrementAndGet();
-        // 清理已完成但未消费的 Future 中的句柄
         pendingLoads.entrySet().removeIf(entry -> {
             if (entry.getKey().startsWith(prefix)) {
                 cleanupFutureHandle(entry.getValue());
@@ -320,7 +320,7 @@ public class MMDModelManager {
         });
         failedLoads.entrySet().removeIf(entry -> entry.getKey().startsWith(prefix));
         MMDTextureManager.clearPreloaded();
-
+        
         // 收集所有与该模型相关的缓存键
         java.util.List<String> keysToRemove = new java.util.ArrayList<>();
         modelCache.forEach((key, entry) -> {
@@ -381,6 +381,8 @@ public class MMDModelManager {
      * 适用于渲染模式切换（CPU/GPU）时需要完全重建所有模型的场景
      */
     public static void forceReloadAllModels() {
+        // 重置第一人称状态（旧模型句柄即将失效）
+        FirstPersonManager.reset();
         // 取消所有正在进行的后台加载
         cancelAllPendingLoads();
         modelCache.clear(MMDModelManager::disposeModel);
@@ -388,16 +390,13 @@ public class MMDModelManager {
         MMDTextureManager.clearPreloaded();
         logger.info("强制重载所有模型完成");
     }
-
+    
     /**
      * 取消所有正在进行的后台加载任务
      */
     private static void cancelAllPendingLoads() {
         if (!pendingLoads.isEmpty()) {
             int count = pendingLoads.size();
-            // 递增代次，让正在运行的后台任务完成后自行清理句柄
-            loadGeneration.incrementAndGet();
-            // 清理已完成但未消费的 Future 中的句柄
             for (var entry : pendingLoads.entrySet()) {
                 cleanupFutureHandle(entry.getValue());
             }
@@ -412,15 +411,25 @@ public class MMDModelManager {
      * 清理已完成 Future 中的模型句柄（防止原生内存泄漏）
      * 对于仍在运行的任务，loadGeneration 机制会让它们自行清理。
      */
+    /**
+     * 清理 Future 中的模型句柄（防止原生内存泄漏）
+     * - 已完成的 Future：直接获取并释放句柄
+     * - 仍在运行的 Future：cancel(true) 设置中断标志，后台线程通过 Thread.interrupted() 检测
+     */
     private static void cleanupFutureHandle(Future<AsyncLoadResult> future) {
-        if (future.isDone() && !future.isCancelled()) {
-            try {
-                AsyncLoadResult result = future.get();
-                if (result != null && result.modelHandle != 0) {
-                    NativeFunc.GetInst().DeleteModel(result.modelHandle);
-                    logger.info("[异步加载] 清理已完成但未消费的模型句柄: {}", result.modelName);
-                }
-            } catch (Exception ignored) {}
+        if (future.isDone()) {
+            if (!future.isCancelled()) {
+                try {
+                    AsyncLoadResult result = future.get();
+                    if (result != null && result.modelHandle != 0) {
+                        NativeFunc.GetInst().DeleteModel(result.modelHandle);
+                        logger.info("[异步加载] 清理已完成但未消费的模型句柄: {}", result.modelName);
+                    }
+                } catch (Exception ignored) {}
+            }
+        } else {
+            // 仍在运行：设置中断标志，后台线程会在检查点自行清理
+            future.cancel(true);
         }
     }
     
@@ -429,29 +438,71 @@ public class MMDModelManager {
      */
     public static void tick() {
         modelCache.tick(MMDModelManager::disposeModel);
+        MMDTextureManager.tick();
     }
     
     /**
      * 创建模型包装器
      */
     private static Model createModelWrapper(String name, IMMDModel model, String modelName) {
-        ModelWithEntityData m = new ModelWithEntityData();
+        Model m = new Model();
         m.entityName = name;
         m.model = model;
         m.modelName = modelName;
         m.entityData = new EntityAnimState(3);
         
-        model.ResetPhysics();
-        model.ChangeAnim(MMDAnimManager.GetAnimModel(model, "idle"), 0);
+        model.resetPhysics();
+        model.changeAnim(MMDAnimManager.GetAnimModel(model, "idle"), 0);
+        
+        // 恢复保存的材质可见性配置
+        applyMaterialVisibility(model.getModelHandle(), modelName);
+        
         return m;
     }
     
+    /**
+     * 应用保存的材质可见性配置到模型
+     */
+    private static void applyMaterialVisibility(long modelHandle, String modelName) {
+        try {
+            ModelConfigData config = ModelConfigManager.getConfig(modelName);
+            if (config.hiddenMaterials.isEmpty()) return;
+            
+            NativeFunc nf = NativeFunc.GetInst();
+            int materialCount = (int) nf.GetMaterialCount(modelHandle);
+            
+            for (int index : config.hiddenMaterials) {
+                if (index >= 0 && index < materialCount) {
+                    nf.SetMaterialVisible(modelHandle, index, false);
+                }
+            }
+            
+            logger.debug("已恢复 {} 个隐藏材质: {}", config.hiddenMaterials.size(), modelName);
+        } catch (Exception e) {
+            logger.warn("恢复材质可见性失败: {}", modelName, e);
+        }
+    }
+    
     public static void ReloadModel() {
+        FirstPersonManager.reset();
         cancelAllPendingLoads();
         modelCache.clear(MMDModelManager::disposeModel);
         MaidMMDModelManager.invalidateLoadedModels();
         MMDTextureManager.clearPreloaded();
         logger.info("模型已重载");
+    }
+    
+    /**
+     * 查询指定模型是否正在异步加载中
+     * 用于 Mixin 判断是否应跳过原版渲染（避免切换模型时闪现原版模型）
+     * 
+     * @param modelName 模型名称
+     * @param cacheKey 缓存键（通常是玩家名）
+     * @return true 表示模型正在加载中，不应回退到原版渲染
+     */
+    public static boolean isModelPending(String modelName, String cacheKey) {
+        String fullCacheKey = modelName + "_" + cacheKey;
+        return pendingLoads.containsKey(fullCacheKey);
     }
     
     /**
@@ -473,13 +524,15 @@ public class MMDModelManager {
      */
     private static void disposeModel(Model model) {
         try {
-            // 使用多态调用 dispose()，无需 instanceof 判断
+            // 通知女仆管理器移除对该模型的引用，防止悬空引用
+            MaidMMDModelManager.onModelDisposed(model);
+
             model.model.dispose();
             MMDAnimManager.DeleteModel(model.model);
             
             // 释放 EntityAnimState 资源
-            if (model instanceof ModelWithEntityData med && med.entityData != null) {
-                med.entityData.dispose();
+            if (model.entityData != null) {
+                model.entityData.dispose();
             }
         } catch (Exception e) {
             logger.error("删除模型失败", e);
@@ -488,8 +541,13 @@ public class MMDModelManager {
     
     public static class Model {
         public IMMDModel model;
+        public EntityAnimState entityData;
         String entityName;
         String modelName;
+        
+        public String getModelName() {
+            return modelName;
+        }
         public Properties properties = new Properties();
         boolean isPropertiesLoaded = false;
 
@@ -513,11 +571,6 @@ public class MMDModelManager {
                 logger.debug("模型属性文件未找到: {}", modelName);
             }
             isPropertiesLoaded = true;
-            MmdSkinClient.reloadProperties = false;
         } 
-    }
-
-    public static class ModelWithEntityData extends Model {
-        public EntityAnimState entityData;
     }
 }

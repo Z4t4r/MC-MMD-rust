@@ -3,7 +3,6 @@ package com.shiroha.mmdskin.renderer.core;
 import com.shiroha.mmdskin.NativeFunc;
 
 import java.nio.ByteBuffer;
-import java.util.HashMap;
 
 /**
  * 实体动画状态
@@ -12,44 +11,22 @@ import java.util.HashMap;
 public class EntityAnimState {
     
     /**
-     * 实体状态枚举
+     * 实体状态枚举（OCP: 属性名内嵌，新增状态只需修改此处）
      */
     public enum State {
-        Idle, Walk, Sprint, Air, 
-        OnClimbable, OnClimbableUp, OnClimbableDown, 
-        Swim, Ride, Ridden, Driven, 
-        Sleep, ElytraFly, Die, 
-        SwingRight, SwingLeft, ItemRight, ItemLeft, 
-        Sneak, OnHorse, Crawl, LieDown
+        Idle("idle"), Walk("walk"), Sprint("sprint"), Air("air"),
+        OnClimbable("onClimbable"), OnClimbableUp("onClimbableUp"), OnClimbableDown("onClimbableDown"),
+        Swim("swim"), Ride("ride"), Ridden("ridden"), Driven("driven"),
+        Sleep("sleep"), ElytraFly("elytraFly"), Die("die"),
+        SwingRight("swingRight"), SwingLeft("swingLeft"), ItemRight("itemRight"), ItemLeft("itemLeft"),
+        Sneak("sneak"), OnHorse("onHorse"), Crawl("crawl"), LieDown("lieDown");
+        
+        public final String propertyName;
+        
+        State(String propertyName) {
+            this.propertyName = propertyName;
+        }
     }
-    
-    /**
-     * 状态到属性名的映射
-     */
-    public static final HashMap<State, String> STATE_PROPERTY_MAP = new HashMap<>() {{
-        put(State.Idle, "idle");
-        put(State.Walk, "walk");
-        put(State.Sprint, "sprint");
-        put(State.Air, "air");
-        put(State.OnClimbable, "onClimbable");
-        put(State.OnClimbableUp, "onClimbableUp");
-        put(State.OnClimbableDown, "onClimbableDown");
-        put(State.Swim, "swim");
-        put(State.Ride, "ride");
-        put(State.Ridden, "ridden");
-        put(State.Driven, "driven");
-        put(State.Sleep, "sleep");
-        put(State.ElytraFly, "elytraFly");
-        put(State.Die, "die");
-        put(State.SwingRight, "swingRight");
-        put(State.SwingLeft, "swingLeft");
-        put(State.ItemRight, "itemRight");
-        put(State.ItemLeft, "itemLeft");
-        put(State.Sneak, "sneak");
-        put(State.OnHorse, "onHorse");
-        put(State.Crawl, "crawl");
-        put(State.LieDown, "lieDown");
-    }};
     
     public boolean playCustomAnim;
     public boolean playStageAnim;
@@ -92,6 +69,6 @@ public class EntityAnimState {
      * 获取状态对应的属性名
      */
     public static String getPropertyName(State state) {
-        return STATE_PROPERTY_MAP.get(state);
+        return state.propertyName;
     }
 }

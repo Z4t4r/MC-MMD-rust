@@ -7,6 +7,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
@@ -21,8 +22,8 @@ public class ModelCache<T> {
     private final Map<String, CacheEntry<T>> cache;
     private final String cacheName;
     
-    private long lastSwitchTime = 0;
-    private boolean pendingCleanup = false;
+    private final AtomicLong lastSwitchTime = new AtomicLong(0);
+    private volatile boolean pendingCleanup = false;
     private static final long CLEANUP_DELAY = 60000; // 1 分钟
     
     public ModelCache(String name) {
@@ -75,7 +76,7 @@ public class ModelCache<T> {
      * 记录切换事件，触发延迟清理
      */
     public void onSwitch() {
-        lastSwitchTime = System.currentTimeMillis();
+        lastSwitchTime.set(System.currentTimeMillis());
         pendingCleanup = true;
     }
     
@@ -88,7 +89,7 @@ public class ModelCache<T> {
         if (!pendingCleanup) return;
         
         long currentTime = System.currentTimeMillis();
-        if (currentTime - lastSwitchTime >= CLEANUP_DELAY) {
+        if (currentTime - lastSwitchTime.get() >= CLEANUP_DELAY) {
             logger.info("[{}] 切换后 1 分钟无操作，清理缓存", cacheName);
             cleanupStale(disposer);
             pendingCleanup = false;
@@ -195,7 +196,7 @@ public class ModelCache<T> {
      */
     public static class CacheEntry<T> {
         public final T value;
-        public long lastAccessTime;
+        public volatile long lastAccessTime;
         
         public CacheEntry(T value) {
             this.value = value;

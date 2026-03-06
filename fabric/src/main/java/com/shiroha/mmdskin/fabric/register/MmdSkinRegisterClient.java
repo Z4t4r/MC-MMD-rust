@@ -11,11 +11,15 @@ import com.shiroha.mmdskin.renderer.render.MmdSkinRenderFactory;
 import com.shiroha.mmdskin.ui.network.ActionWheelNetworkHandler;
 import com.shiroha.mmdskin.ui.wheel.ConfigWheelScreen;
 import com.shiroha.mmdskin.ui.wheel.MaidConfigWheelScreen;
+import com.shiroha.mmdskin.ui.QuickModelSwitcher;
 import com.shiroha.mmdskin.ui.network.MorphWheelNetworkHandler;
 import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 import com.shiroha.mmdskin.ui.network.StageNetworkHandler;
 import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
+import com.shiroha.mmdskin.renderer.camera.StageAudioPlayer;
+import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
+import com.shiroha.mmdskin.util.KeyMappingUtil;
 
 import java.io.File;
 import net.fabricmc.api.EnvType;
@@ -53,6 +57,14 @@ public class MmdSkinRegisterClient {
     static KeyMapping keyMaidConfigWheel = new KeyMapping("key.mmdskin.maid_config_wheel",
         InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_B, "key.categories.mmdskin");
     
+    static final KeyMapping[] keyQuickModels = new KeyMapping[4];
+    static {
+        for (int i = 0; i < 4; i++) {
+            keyQuickModels[i] = new KeyMapping("key.mmdskin.quick_model_" + (i + 1),
+                InputConstants.Type.KEYSYM, InputConstants.UNKNOWN.getValue(), "key.categories.mmdskin");
+        }
+    }
+    
     // 追踪按键状态
     private static boolean configWheelKeyWasDown = false;
     private static boolean maidConfigWheelKeyWasDown = false;
@@ -60,10 +72,16 @@ public class MmdSkinRegisterClient {
     public static void Register() {
         Minecraft MCinstance = Minecraft.getInstance();
         
+        // 注入 Fabric 平台的按键获取逻辑
+        KeyMappingUtil.setBoundKeyGetter(k -> ((KeyMappingAccessor) k).mmd$getBoundKey());
+        
         // 注册按键
         KeyBindingHelper.registerKeyBinding(keyConfigWheel);
         if (MaidCompatMixinPlugin.isMaidModLoaded()) {
             KeyBindingHelper.registerKeyBinding(keyMaidConfigWheel);
+        }
+        for (KeyMapping keyQuickModel : keyQuickModels) {
+            KeyBindingHelper.registerKeyBinding(keyQuickModel);
         }
         
         // 设置模组设置界面工厂
@@ -143,8 +161,7 @@ public class MmdSkinRegisterClient {
             if (MCinstance.screen == null || MCinstance.screen instanceof ConfigWheelScreen) {
                 boolean keyDown = keyConfigWheel.isDown();
                 if (keyDown && !configWheelKeyWasDown) {
-                    int keyCode = ((KeyMappingAccessor) keyConfigWheel).mmd$getBoundKey().getValue();
-                    MCinstance.setScreen(new ConfigWheelScreen(keyCode));
+                    MCinstance.setScreen(new ConfigWheelScreen(keyConfigWheel));
                 }
                 configWheelKeyWasDown = keyDown;
             } else {
@@ -161,6 +178,37 @@ public class MmdSkinRegisterClient {
                     maidConfigWheelKeyWasDown = keyDown;
                 } else {
                     maidConfigWheelKeyWasDown = false;
+                }
+            }
+
+            // 快捷模型切换
+            if (MCinstance.screen == null) {
+                for (int i = 0; i < keyQuickModels.length; i++) {
+                    while (keyQuickModels[i].consumeClick()) {
+                        QuickModelSwitcher.switchToSlot(i);
+                    }
+                }
+            }
+
+        });
+
+        // 远程舞台音频距离衰减（每秒更新一次）
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (MCinstance.player == null) return;
+
+            // 模型/纹理缓存 GC
+            MMDModelManager.tick();
+
+            StageAudioPlayer.tickRemoteAttenuation();
+
+            // 舞台模式死亡/复活检测
+            if (MCinstance.player != null) {
+                if (!MCinstance.player.isAlive()) {
+                    MMDCameraController controller = MMDCameraController.getInstance();
+                    if (controller.isInStageMode()) {
+                        logger.info("检测到玩家死亡，正在退出舞台模式以防止视角锁定");
+                        controller.exitStageMode();
+                    }
                 }
             }
         });
@@ -202,11 +250,13 @@ public class MmdSkinRegisterClient {
                         logger.info("玩家加入服务器，广播模型选择: {}", selectedModel);
                         PlayerModelSyncManager.broadcastLocalModelSelection(player.getUUID(), selectedModel);
                     }
+                    // 请求所有玩家的模型信息
+                    MmdSkinNetworkPack.sendToServer(10, player.getUUID(), "");
                 }
             });
         });
         
-        // 注册玩家断开连接事件（清理远程玩家缓存 + 舞台模式 + 远程舞台动画句柄）
+        // 注册玩家断开连接事件（清理远程玩家缓存 + 舞台模式）
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             MMDCameraController.getInstance().exitStageMode();
             PlayerModelSyncManager.onDisconnect();
@@ -231,8 +281,7 @@ public class MmdSkinRegisterClient {
         String className = target.getClass().getName();
         if (className.contains("EntityMaid") || className.contains("touhoulittlemaid")) {
             String maidName = target.getName().getString();
-            int keyCode = ((KeyMappingAccessor) keyMaidConfigWheel).mmd$getBoundKey().getValue();
-            mc.setScreen(new MaidConfigWheelScreen(target.getUUID(), target.getId(), maidName, keyCode));
+            mc.setScreen(new MaidConfigWheelScreen(target.getUUID(), target.getId(), maidName, keyMaidConfigWheel));
             logger.info("打开女仆配置轮盘: {} (ID: {})", maidName, target.getId());
         }
     }

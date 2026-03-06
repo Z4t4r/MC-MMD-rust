@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -24,11 +25,10 @@ import org.joml.Vector3f;
 public class MmdSkinClient {
     public static final Logger logger = LogManager.getLogger();
     public static int usingMMDShader = 0;
-    public static boolean reloadProperties = false;
     static final int BUFFER = 512;
     static final long TOOBIG = 0x6400000; // Max size of unzipped data, 100MB
     static final int TOOMANY = 1024;      // Max number of files
-    //public static String[] debugStr = new String[10];
+
 
     public static void initClient() {
         check3DSkinFolder();
@@ -83,7 +83,8 @@ public class MmdSkinClient {
         File defaultAnimDir = PathConstants.getDefaultAnimDir();
         
         // 如果目录不存在或为空，则提取内置动画
-        if (!defaultAnimDir.exists() || defaultAnimDir.list() == null || defaultAnimDir.list().length == 0) {
+        String[] files = defaultAnimDir.list();
+        if (!defaultAnimDir.exists() || files == null || files.length == 0) {
             logger.info("DefaultAnim 目录缺失，从模组内置资源提取...");
             PathConstants.ensureDirectoryExists(defaultAnimDir);
             
@@ -113,76 +114,80 @@ public class MmdSkinClient {
         if (canonicalPath.startsWith(canonicalID)) {
             return canonicalPath;
         } else {
-            throw new IllegalStateException("File is outside extraction target directory.");
+            throw new IllegalStateException("文件在目标解压目录之外");
         }
     }
 
     public static final void unzip(String filename, String targetDir) throws java.io.IOException {
-        FileInputStream fis = new FileInputStream(filename);
-        ZipInputStream zis = new ZipInputStream(new BufferedInputStream(fis));
         ZipEntry entry;
         int entries = 0;
         long total = 0;
-        try {
+        try (FileInputStream fis = new FileInputStream(filename);
+             ZipInputStream zis = new ZipInputStream(new BufferedInputStream(fis))) {
             while ((entry = zis.getNextEntry()) != null) {
-                logger.info("Extracting: " + entry);
+                logger.info("解压: " + entry);
                 int count;
                 byte data[] = new byte[BUFFER];
-                // Write the files to the disk, but ensure that the filename is valid,
-                // and that the file is not insanely big
-                String name = validateFilename(targetDir+entry.getName(), ".");
+                String name = validateFilename(targetDir+entry.getName(), targetDir);
                 File targetFile = new File(name);
                 if (entry.isDirectory()) {
-                    logger.info("Creating directory " + name);
+                    logger.info("创建目录 " + name);
                     new File(name).mkdir();
                     continue;
                 }
                 if (!targetFile.getParentFile().exists()){
                     targetFile.getParentFile().mkdirs();
                 }
-                FileOutputStream fos = new FileOutputStream(name);
-                BufferedOutputStream dest = new BufferedOutputStream(fos, BUFFER);
-                while (total + BUFFER <= TOOBIG && (count = zis.read(data, 0, BUFFER)) != -1) {
-                    dest.write(data, 0, count);
-                    total += count;
+                try (FileOutputStream fos = new FileOutputStream(name);
+                     BufferedOutputStream dest = new BufferedOutputStream(fos, BUFFER)) {
+                    while (total + BUFFER <= TOOBIG && (count = zis.read(data, 0, BUFFER)) != -1) {
+                        dest.write(data, 0, count);
+                        total += count;
+                    }
+                    dest.flush();
                 }
-                dest.flush();
-                dest.close();
                 zis.closeEntry();
                 entries++;
                 if (entries > TOOMANY) {
-                    throw new IllegalStateException("Too many files to unzip.");
+                    throw new IllegalStateException("解压文件数量过多");
                 }
                 if (total + BUFFER > TOOBIG) {
-                    throw new IllegalStateException("File being unzipped is too big.");
+                    throw new IllegalStateException("解压文件体积过大");
                 }
             }
-        } finally {
-            zis.close();
         }
     }
 
     private static void check3DSkinFolder(){
         File skin3DFolder = PathConstants.getSkinRootDir();
         if (!skin3DFolder.exists()){
-            logger.info("3d-skin folder not found, try download from github!");
+            logger.info("3d-skin 目录不存在，尝试从 GitHub 下载");
             skin3DFolder.mkdir();
             String gameDir = PathConstants.getGameDirectory();
+            File zipFile = new File(gameDir, PathConstants.RESOURCE_ZIP_NAME);
+
+            boolean downloadSuccess = false;
             try{
                 FileUtils.copyURLToFile(URI.create(PathConstants.RESOURCE_DOWNLOAD_URL).toURL(), 
-                    new File(gameDir, PathConstants.RESOURCE_ZIP_NAME), 30000, 30000);
+                    zipFile, 30000, 30000);
+                downloadSuccess = true;
             }catch (IOException e){
-                logger.info("Download 3d-skin.zip failed!");
+                logger.error("下载 3d-skin.zip 失败: {}", e.getMessage());
             }
 
-            try{
-                unzip(gameDir + "/" + PathConstants.RESOURCE_ZIP_NAME, 
-                      PathConstants.getSkinRootPath() + "/");
-            }catch (IOException e){
-                logger.info("extract 3d-skin.zip failed!");
+            if (downloadSuccess) {
+                try{
+                    unzip(zipFile.getAbsolutePath(), 
+                          PathConstants.getSkinRootPath() + "/");
+                }catch (IOException e){
+                    logger.error("解压 3d-skin.zip 失败: {}", e.getMessage());
+                }
             }
+
+            try {
+                zipFile.delete();
+            } catch (Exception ignored) {}
         }
-        return;
     }
 
     public static String calledFrom(int i){
@@ -194,19 +199,18 @@ public class MmdSkinClient {
     }
 
     public static Vector3f str2Vec3f(String arg){
-        Vector3f vector3f = new Vector3f();
         String[] splittedStr = arg.split(",");
         if (splittedStr.length != 3){
             return new Vector3f(0.0f);
         }
-        vector3f.x = Float.valueOf(splittedStr[0]);
-        vector3f.y = Float.valueOf(splittedStr[1]);
-        vector3f.z = Float.valueOf(splittedStr[2]);
-        return vector3f;
-    }
-    
-    public static void drawText(String arg, int x, int y){
-        // MC 1.21.1: RenderSystem.getModelViewStack() 已移除，使用新的渲染 API
-        // 此方法暂不使用，保留空实现
+        try {
+            float x = Float.parseFloat(splittedStr[0]);
+            float y = Float.parseFloat(splittedStr[1]);
+            float z = Float.parseFloat(splittedStr[2]);
+            return new Vector3f(x, y, z);
+        } catch (NumberFormatException e) {
+            logger.warn("向量解析失败: {}", arg);
+            return new Vector3f(0.0f);
+        }
     }
 }

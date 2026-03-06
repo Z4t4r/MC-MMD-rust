@@ -81,12 +81,11 @@ public class MaidMMDRenderer {
      * 更新动画状态（针对女仆实体的简化版本）
      */
     private static void updateAnimationState(LivingEntity entity, MMDModelManager.Model modelData) {
-        if (!(modelData instanceof MMDModelManager.ModelWithEntityData)) {
+        if (modelData.entityData == null) {
             return;
         }
         
-        MMDModelManager.ModelWithEntityData modelWithData = (MMDModelManager.ModelWithEntityData) modelData;
-        EntityAnimState entityData = modelWithData.entityData;
+        EntityAnimState entityData = modelData.entityData;
         
         // 简化的动画状态判断（针对女仆）
         EntityAnimState.State targetState;
@@ -113,7 +112,7 @@ public class MaidMMDRenderer {
         if (entityData.stateLayers[0] != targetState) {
             entityData.stateLayers[0] = targetState;
             String animName = EntityAnimState.getPropertyName(targetState);
-            modelWithData.model.ChangeAnim(MMDAnimManager.GetAnimModel(modelWithData.model, animName), 0);
+            modelData.model.changeAnim(MMDAnimManager.GetAnimModel(modelData.model, animName), 0);
         }
     }
     

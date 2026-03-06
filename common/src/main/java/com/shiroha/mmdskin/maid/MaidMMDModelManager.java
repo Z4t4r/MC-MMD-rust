@@ -103,10 +103,15 @@ public class MaidMMDModelManager {
             return null;
         }
         
-        // 检查是否已加载
+        // 检查是否已加载且句柄仍有效
         MMDModelManager.Model model = loadedModels.get(maidUUID);
         if (model != null) {
-            return model;
+            if (model.model != null && model.model.getModelHandle() != 0) {
+                return model;
+            }
+            // 句柄已失效（被 ModelCache GC 回收），移除悬空引用
+            loadedModels.remove(maidUUID);
+            logger.warn("女仆 {} 模型句柄已失效，将重新加载", maidUUID);
         }
         
         // 懒加载模型
@@ -114,11 +119,6 @@ public class MaidMMDModelManager {
         model = MMDModelManager.GetModel(modelName, cacheKey);
         if (model != null) {
             loadedModels.put(maidUUID, model);
-            
-            // 设置默认动画
-            IMMDModel mmdModel = model.model;
-            mmdModel.ChangeAnim(MMDAnimManager.GetAnimModel(mmdModel, "idle"), 0);
-            
             logger.info("女仆 {} 模型加载成功: {}", maidUUID, modelName);
         }
         
@@ -141,13 +141,21 @@ public class MaidMMDModelManager {
         IMMDModel mmdModel = model.model;
         long anim = MMDAnimManager.GetAnimModel(mmdModel, animId);
         if (anim != 0) {
-            mmdModel.TransitionAnim(anim, 0, 0.25f);
+            mmdModel.transitionAnim(anim, 0, 0.25f);
             logger.info("女仆 {} 播放动画: {}", maidUUID, animId);
         } else {
             logger.warn("女仆 {} 动画未找到: {}", maidUUID, animId);
         }
     }
     
+    /**
+     * 模型被 dispose 时的回调，移除持有该模型的条目防止悬空引用
+     */
+    public static void onModelDisposed(MMDModelManager.Model disposedModel) {
+        if (disposedModel == null) return;
+        loadedModels.entrySet().removeIf(entry -> entry.getValue() == disposedModel);
+    }
+
     /**
      * 使已加载的模型缓存失效（保留绑定关系）
      * 

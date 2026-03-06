@@ -103,3 +103,5 @@ SYNC_PROGRESS.md
 FoldCraftLauncher/
 KAIMyEntitySaba/
 rust_engine/deps/mdanceio/
+/bullet3/
+**/natives

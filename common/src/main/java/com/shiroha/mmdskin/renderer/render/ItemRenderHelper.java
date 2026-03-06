@@ -2,7 +2,7 @@ package com.shiroha.mmdskin.renderer.render;
 
 import com.shiroha.mmdskin.NativeFunc;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.shiroha.mmdskin.renderer.model.MMDModelManager.ModelWithEntityData;
+import com.shiroha.mmdskin.renderer.model.MMDModelManager.Model;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -16,87 +16,84 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * 物品渲染辅助类
- * 负责渲染玩家手持物品
+ * 物品渲染辅助类 (OCP - 开闭原则)
+ * 负责渲染玩家手持物品，通过参数化消除左右手重复代码
  */
 public class ItemRenderHelper {
+    
+    private static final float DEG_TO_RAD = (float) Math.PI / 180F;
     
     /**
      * 渲染玩家手持物品
      */
-    public static void renderItems(AbstractClientPlayer player, ModelWithEntityData model, 
+    public static void renderItems(AbstractClientPlayer player, Model model, 
                                    PoseStack matrixStack, MultiBufferSource vertexConsumers, int packedLight) {
-        renderMainHandItem(player, model, matrixStack, vertexConsumers, packedLight);
-        renderOffHandItem(player, model, matrixStack, vertexConsumers, packedLight);
+        renderHandItem(player, model, matrixStack, vertexConsumers, packedLight, InteractionHand.MAIN_HAND);
+        renderHandItem(player, model, matrixStack, vertexConsumers, packedLight, InteractionHand.OFF_HAND);
     }
     
-    private static void renderMainHandItem(AbstractClientPlayer player, ModelWithEntityData model,
-                                           PoseStack matrixStack, MultiBufferSource vertexConsumers, int packedLight) {
+    /**
+     * 渲染指定手的物品（统一左右手逻辑）
+     */
+    private static void renderHandItem(AbstractClientPlayer player, Model model,
+                                        PoseStack matrixStack, MultiBufferSource vertexConsumers, 
+                                        int packedLight, InteractionHand hand) {
+        boolean isMainHand = (hand == InteractionHand.MAIN_HAND);
         NativeFunc nf = NativeFunc.GetInst();
-        nf.GetRightHandMat(model.model.GetModelLong(), model.entityData.rightHandMat);
+        long modelHandle = model.model.getModelHandle();
+        long handMat = isMainHand ? model.entityData.rightHandMat : model.entityData.leftHandMat;
+        
+        // 获取手部变换矩阵
+        if (isMainHand) {
+            nf.GetRightHandMat(modelHandle, handMat);
+        } else {
+            nf.GetLeftHandMat(modelHandle, handMat);
+        }
         
         matrixStack.pushPose();
-        matrixStack.last().pose().mul(convertToMatrix4f(nf, model.entityData.rightHandMat, model.entityData.matBuffer));
+        matrixStack.last().pose().mul(convertToMatrix4f(nf, handMat, model.entityData.matBuffer));
         
-        // 基础旋转：剑朝前（原始状态朝上，绕X轴旋转90度使其朝前）
-        matrixStack.mulPose(new Quaternionf().rotateX(90.0f * ((float)Math.PI / 180F)));
-        // 翻转物品（修正弓等物品反向问题）
-        matrixStack.mulPose(new Quaternionf().rotateY(180.0f * ((float)Math.PI / 180F)));
+        // 基础旋转：剑朝前 + 翻转
+        matrixStack.mulPose(new Quaternionf().rotateX(90.0f * DEG_TO_RAD));
+        matrixStack.mulPose(new Quaternionf().rotateY(180.0f * DEG_TO_RAD));
         
         // 可配置的额外旋转
-        float rotationX = getItemRotation(player, model, InteractionHand.MAIN_HAND, "x");
-        matrixStack.mulPose(new Quaternionf().rotateX(rotationX * ((float)Math.PI / 180F)));
-        
-        float rotationY = getItemRotation(player, model, InteractionHand.MAIN_HAND, "y");
-        matrixStack.mulPose(new Quaternionf().rotateY(rotationY * ((float)Math.PI / 180F)));
-        
-        float rotationZ = getItemRotation(player, model, InteractionHand.MAIN_HAND, "z");
-        matrixStack.mulPose(new Quaternionf().rotateZ(rotationZ * ((float)Math.PI / 180F)));
+        applyConfiguredRotation(matrixStack, player, model, hand);
         
         matrixStack.scale(10.0f, 10.0f, 10.0f);
         
+        ItemDisplayContext displayCtx = isMainHand 
+                ? ItemDisplayContext.THIRD_PERSON_RIGHT_HAND 
+                : ItemDisplayContext.THIRD_PERSON_LEFT_HAND;
+        
         Minecraft.getInstance().getItemRenderer().renderStatic(
-            player, player.getMainHandItem(), ItemDisplayContext.THIRD_PERSON_RIGHT_HAND, false, 
+            player, player.getItemInHand(hand), displayCtx, !isMainHand,
             matrixStack, vertexConsumers, player.level(), packedLight, OverlayTexture.NO_OVERLAY, 0
         );
         
         matrixStack.popPose();
     }
     
-    private static void renderOffHandItem(AbstractClientPlayer player, ModelWithEntityData model,
-                                          PoseStack matrixStack, MultiBufferSource vertexConsumers, int packedLight) {
-        NativeFunc nf = NativeFunc.GetInst();
-        nf.GetLeftHandMat(model.model.GetModelLong(), model.entityData.leftHandMat);
-        
-        matrixStack.pushPose();
-        matrixStack.last().pose().mul(convertToMatrix4f(nf, model.entityData.leftHandMat, model.entityData.matBuffer));
-        
-        // 基础旋转：剑朝前（原始状态朝上，绕X轴旋转90度使其朝前）
-        matrixStack.mulPose(new Quaternionf().rotateX(90.0f * ((float)Math.PI / 180F)));
-        // 翻转物品（修正弓等物品反向问题）
-        matrixStack.mulPose(new Quaternionf().rotateY(180.0f * ((float)Math.PI / 180F)));
-        
-        // 可配置的额外旋转
-        float rotationX = getItemRotation(player, model, InteractionHand.OFF_HAND, "x");
-        matrixStack.mulPose(new Quaternionf().rotateX(rotationX * ((float)Math.PI / 180F)));
-        
-        float rotationY = getItemRotation(player, model, InteractionHand.OFF_HAND, "y");
-        matrixStack.mulPose(new Quaternionf().rotateY(rotationY * ((float)Math.PI / 180F)));
-        
-        float rotationZ = getItemRotation(player, model, InteractionHand.OFF_HAND, "z");
-        matrixStack.mulPose(new Quaternionf().rotateZ(rotationZ * ((float)Math.PI / 180F)));
-        
-        matrixStack.scale(10.0f, 10.0f, 10.0f);
-        
-        Minecraft.getInstance().getItemRenderer().renderStatic(
-            player, player.getOffhandItem(), ItemDisplayContext.THIRD_PERSON_LEFT_HAND, true, 
-            matrixStack, vertexConsumers, player.level(), packedLight, OverlayTexture.NO_OVERLAY, 0
-        );
-        
-        matrixStack.popPose();
+    /**
+     * 应用模型配置中的额外旋转
+     */
+    private static void applyConfiguredRotation(PoseStack matrixStack, AbstractClientPlayer player,
+                                                 Model model, InteractionHand hand) {
+        for (String axis : new String[]{"x", "y", "z"}) {
+            float rotation = getItemRotation(player, model, hand, axis);
+            if (rotation != 0.0f) {
+                Quaternionf q = new Quaternionf();
+                switch (axis) {
+                    case "x" -> q.rotateX(rotation * DEG_TO_RAD);
+                    case "y" -> q.rotateY(rotation * DEG_TO_RAD);
+                    case "z" -> q.rotateZ(rotation * DEG_TO_RAD);
+                }
+                matrixStack.mulPose(q);
+            }
+        }
     }
     
-    private static float getItemRotation(AbstractClientPlayer player, ModelWithEntityData model, 
+    private static float getItemRotation(AbstractClientPlayer player, Model model, 
                                         InteractionHand hand, String axis) {
         String itemId = getItemId(player, hand);
         String handStr = (hand == InteractionHand.MAIN_HAND) ? "Right" : "Left";

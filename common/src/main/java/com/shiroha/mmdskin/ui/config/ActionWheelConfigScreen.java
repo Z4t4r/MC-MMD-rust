@@ -56,6 +56,12 @@ public class ActionWheelConfigScreen extends Screen {
         this.parent = parent;
         loadData();
     }
+
+    // MC 1.21.1: 禁用默认背景模糊效果
+    @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        guiGraphics.fill(0, 0, this.width, this.height, 0xC0101010);
+    }
     
     private void loadData() {
         ActionWheelConfig config = ActionWheelConfig.getInstance();
@@ -139,6 +145,8 @@ public class ActionWheelConfigScreen extends Screen {
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        this.renderBackground(guiGraphics, mouseX, mouseY, partialTick);
+        
         // 标题
         guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 12, COLOR_TEXT_PRIMARY);
         
@@ -321,10 +329,6 @@ public class ActionWheelConfigScreen extends Screen {
         this.minecraft.setScreen(parent);
     }
     
-    @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-    }
-
     @Override
     public boolean isPauseScreen() {
         return false;

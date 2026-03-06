@@ -2,6 +2,7 @@ package com.shiroha.mmdskin.renderer.model.factory;
 
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
 import com.shiroha.mmdskin.renderer.core.IMMDModelFactory;
+import com.shiroha.mmdskin.renderer.core.RenderCategory;
 import com.shiroha.mmdskin.renderer.model.MMDModelOpenGL;
 
 import org.apache.logging.log4j.LogManager;
@@ -19,7 +20,10 @@ public class OpenGLModelFactory implements IMMDModelFactory {
     /** 优先级：最低（作为回退） */
     private static final int PRIORITY = 0;
     
-    private boolean enabled = true;
+    @Override
+    public RenderCategory getCategory() {
+        return RenderCategory.CPU_SKINNING;
+    }
     
     @Override
     public String getModeName() {
@@ -35,16 +39,6 @@ public class OpenGLModelFactory implements IMMDModelFactory {
     public boolean isAvailable() {
         // CPU 蒙皮始终可用
         return true;
-    }
-    
-    @Override
-    public boolean isEnabled() {
-        return enabled;
-    }
-    
-    @Override
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
     }
     
     @Override

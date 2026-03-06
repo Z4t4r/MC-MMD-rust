@@ -29,10 +29,10 @@ public class InventoryRenderHelper {
     
     /**
      * 在库存屏幕中渲染模型
-     * MC 1.21.1: 使用传入的 PoseStack 而非 RenderSystem.getModelViewStack()
      */
     public static void renderInInventory(AbstractClientPlayer player, IMMDModel model, float entityYaw, 
                                         float tickDelta, PoseStack matrixStack, int packedLight, float[] size) {
+        // MC 1.21.1: 使用传入的 PoseStack 而非 RenderSystem.getModelViewStack()
         matrixStack.pushPose();
         
         float inventorySize = size[1];
@@ -46,6 +46,11 @@ public class InventoryRenderHelper {
         model.render(player, entityYaw, 0.0f, new Vector3f(0.0f), tickDelta, matrixStack, packedLight, RenderContext.INVENTORY);
         
         matrixStack.popPose();
+        
+        Quaternionf bodyRotation = new Quaternionf().rotateY(-player.yBodyRot * ((float)Math.PI / 180F));
+        matrixStack.mulPose(bodyRotation);
+        matrixStack.scale(inventorySize, inventorySize, inventorySize);
+        matrixStack.scale(0.09f, 0.09f, 0.09f);
     }
     
     private static Quaternionf calculateRotation(AbstractClientPlayer player) {

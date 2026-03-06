@@ -1,9 +1,8 @@
 package com.shiroha.mmdskin.ui.network;
 
+import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
 
 import java.util.Map;
 import java.util.UUID;
@@ -28,8 +27,8 @@ public class PlayerModelSyncManager {
     // 运行时缓存：playerUUID -> modelName
     private static final Map<UUID, String> remotePlayerModels = new ConcurrentHashMap<>();
     
-    // 网络发送器（由平台特定代码设置）
-    private static BiConsumer<UUID, String> networkBroadcaster;
+    // 网络发送器（由平台特定代码设置，跨线程访问需 volatile）
+    private static volatile BiConsumer<UUID, String> networkBroadcaster;
     
     /**
      * 设置网络广播器（由平台特定代码调用）

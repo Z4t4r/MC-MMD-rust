@@ -303,7 +303,15 @@ jobs:
           pattern: native-*
           path: native-libs
 
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+
       - name: Copy natives to resources
+        env:
+          NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           mkdir -p common/src/main/resources/natives/windows-x64
           mkdir -p common/src/main/resources/natives/linux-x64
@@ -311,6 +319,7 @@ jobs:
           cp native-libs/native-windows-x64/mmd_engine.dll common/src/main/resources/natives/windows-x64/
           cp native-libs/native-linux-x64/libmmd_engine.so common/src/main/resources/natives/linux-x64/
           cp native-libs/native-android-arm64/libmmd_engine.so common/src/main/resources/natives/android-arm64/
+          cp "$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" common/src/main/resources/natives/android-arm64/
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -369,7 +378,15 @@ jobs:
           pattern: native-*
           path: native-libs
 
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+
       - name: Copy ALL natives to resources
+        env:
+          NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           mkdir -p common/src/main/resources/natives/windows-x64
           mkdir -p common/src/main/resources/natives/windows-arm64
@@ -391,6 +408,8 @@ jobs:
           cp native-libs/native-macos-arm64/libmmd_engine.dylib common/src/main/resources/natives/macos-arm64/
           cp native-libs/native-android-arm64/libmmd_engine.so common/src/main/resources/natives/android-arm64/
           cp native-libs/native-android-amd64/libmmd_engine.so common/src/main/resources/natives/android-amd64/
+          cp "$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" common/src/main/resources/natives/android-arm64/
+          cp "$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so" common/src/main/resources/natives/android-amd64/
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4

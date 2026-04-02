@@ -1,76 +1,143 @@
 package com.shiroha.mmdskin.ui.network;
 
+import com.shiroha.mmdskin.stage.application.StageSessionService;
+import com.shiroha.mmdskin.stage.domain.model.StageCameraMode;
+import com.shiroha.mmdskin.stage.domain.model.StageDescriptor;
+import com.shiroha.mmdskin.stage.domain.model.StageInviteDecision;
+import com.shiroha.mmdskin.stage.protocol.StagePacket;
+import com.shiroha.mmdskin.stage.protocol.StagePacketCodec;
+import com.shiroha.mmdskin.stage.protocol.StagePacketType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
- * 舞台模式网络通信
+ * 舞台网络发送入口。
  */
-public class StageNetworkHandler {
-    private static final Logger logger = LogManager.getLogger();
+public final class StageNetworkHandler {
+    private static final Logger LOGGER = LogManager.getLogger();
 
-    private static Consumer<String> stageStartSender;
-    private static Runnable stageEndSender;
     private static Consumer<String> stageMultiSender;
 
-    public static void setStageStartSender(Consumer<String> sender) { stageStartSender = sender; }
-    public static void setStageEndSender(Runnable sender) { stageEndSender = sender; }
-    public static void setStageMultiSender(Consumer<String> sender) { stageMultiSender = sender; }
+    private StageNetworkHandler() {
+    }
 
-    public static void sendStageStart(String stageData) {
-        if (stageStartSender != null) {
-            try { stageStartSender.accept(stageData); }
-            catch (Exception e) { logger.error("广播舞台开始失败", e); }
+    public static void setStageMultiSender(Consumer<String> sender) {
+        stageMultiSender = sender;
+    }
+
+    public static void sendStageInvite(UUID targetUUID, UUID sessionId) {
+        StagePacket packet = directedPacket(StagePacketType.INVITE_REQUEST, targetUUID, sessionId);
+        sendStagePacket(packet);
+    }
+
+    public static void sendInviteCancel(UUID targetUUID, UUID sessionId) {
+        StagePacket packet = directedPacket(StagePacketType.INVITE_CANCEL, targetUUID, sessionId);
+        sendStagePacket(packet);
+    }
+
+    public static void sendInviteResponse(UUID hostUUID, UUID sessionId, StageInviteDecision decision) {
+        StagePacket packet = directedPacket(StagePacketType.INVITE_RESPONSE, hostUUID, sessionId);
+        packet.inviteDecision = decision;
+        sendStagePacket(packet);
+    }
+
+    public static void sendReady(UUID hostUUID, UUID sessionId, boolean ready, boolean useHostCamera,
+                                 String motionPackName, List<String> motionFiles) {
+        StagePacket packet = directedPacket(StagePacketType.READY_UPDATE, hostUUID, sessionId);
+        packet.ready = ready;
+        packet.cameraMode = StageCameraMode.fromUseHostCamera(useHostCamera);
+        packet.motionPackName = motionPackName;
+        packet.motionFiles = motionFiles != null ? List.copyOf(motionFiles) : Collections.emptyList();
+        sendStagePacket(packet);
+    }
+
+    public static void sendLeave(UUID hostUUID, UUID sessionId) {
+        StagePacket packet = directedPacket(StagePacketType.MEMBER_LEAVE, hostUUID, sessionId);
+        sendStagePacket(packet);
+    }
+
+    public static void sendSessionDissolve(UUID sessionId) {
+        StagePacket packet = new StagePacket(StagePacketType.SESSION_DISSOLVE);
+        if (sessionId != null) {
+            packet.sessionId = sessionId.toString();
         }
+        sendStagePacket(packet);
     }
 
-    public static void sendStageEnd() {
-        if (stageEndSender != null) {
-            try { stageEndSender.run(); }
-            catch (Exception e) { logger.error("广播舞台结束失败", e); }
+    public static void sendStageWatch(UUID targetUUID, UUID sessionId, StageDescriptor descriptor,
+                                      float heightOffset, float startFrame) {
+        if (descriptor == null || !descriptor.isValid()) {
+            LOGGER.warn("[多人舞台] 舞台描述无效，无法发送播放开始");
+            return;
         }
+        StagePacket packet = directedPacket(StagePacketType.PLAYBACK_START, targetUUID, sessionId);
+        packet.descriptor = descriptor.copy();
+        packet.heightOffset = heightOffset;
+        packet.frame = startFrame;
+        sendStagePacket(packet);
     }
 
-    public static void sendStageInvite(UUID targetUUID) {
-        sendMulti("INVITE|" + targetUUID);
+    public static void sendRemoteStageStart(StageDescriptor descriptor) {
+        if (descriptor == null || !descriptor.isValid()) {
+            LOGGER.warn("[多人舞台] 远端舞台描述无效，无法广播开始");
+            return;
+        }
+        StagePacket packet = new StagePacket(StagePacketType.REMOTE_STAGE_START);
+        packet.descriptor = descriptor.copy();
+        sendStagePacket(packet);
     }
 
-    public static void sendInviteResponse(UUID hostUUID, boolean accepted) {
-        sendMulti((accepted ? "ACCEPT|" : "DECLINE|") + hostUUID);
+    public static void sendRemoteStageStop() {
+        sendStagePacket(new StagePacket(StagePacketType.REMOTE_STAGE_STOP));
     }
 
-    public static void sendStageWatch(UUID targetUUID, String stageData) {
-        sendMulti("WATCH_START|" + targetUUID + "|" + stageData);
+    public static void sendStageWatchEnd(UUID targetUUID, UUID sessionId) {
+        StagePacket packet = directedPacket(StagePacketType.PLAYBACK_STOP, targetUUID, sessionId);
+        sendStagePacket(packet);
     }
 
-    public static void sendStageWatchEnd(UUID targetUUID) {
-        sendMulti("WATCH_END|" + targetUUID);
+    public static void sendFrameSync(UUID sessionId, float currentFrame) {
+        StagePacket packet = new StagePacket(StagePacketType.FRAME_SYNC);
+        if (sessionId != null) {
+            packet.sessionId = sessionId.toString();
+        }
+        packet.frame = currentFrame;
+        sendStagePacket(packet);
     }
 
     public static void sendLeave(UUID hostUUID) {
-        sendMulti("LEAVE|" + hostUUID);
+        sendLeave(hostUUID, StageSessionService.getInstance().getSessionId());
     }
 
-    public static void sendFrameSync(float currentFrame) {
-        sendMulti("SYNC_FRAME|" + currentFrame);
+    private static StagePacket directedPacket(StagePacketType type, UUID targetUUID, UUID sessionId) {
+        StagePacket packet = new StagePacket(type);
+        if (targetUUID != null) {
+            packet.targetPlayerId = targetUUID.toString();
+        }
+        if (sessionId != null) {
+            packet.sessionId = sessionId.toString();
+        }
+        return packet;
     }
 
-    public static void sendReady(UUID hostUUID, boolean useHostCamera) {
-        sendMulti("READY|" + hostUUID + "|" + (useHostCamera ? "1" : "0"));
+    private static void sendStagePacket(StagePacket packet) {
+        sendMulti(StagePacketCodec.encode(packet));
     }
 
-    private static void sendMulti(String data) {
+    private static void sendMulti(String payload) {
         if (stageMultiSender == null) {
-            logger.warn("[多人舞台] stageMultiSender 未注册");
+            LOGGER.warn("[多人舞台] stageMultiSender 未注册");
             return;
         }
         try {
-            stageMultiSender.accept(data);
+            stageMultiSender.accept(payload);
         } catch (Exception e) {
-            logger.error("多人舞台消息发送失败", e);
+            LOGGER.error("多人舞台消息发送失败", e);
         }
     }
 }

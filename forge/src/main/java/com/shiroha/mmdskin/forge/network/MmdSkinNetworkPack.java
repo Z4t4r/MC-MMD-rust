@@ -1,14 +1,11 @@
 package com.shiroha.mmdskin.forge.network;
 
-import java.util.UUID;
-import java.util.function.Supplier;
-
 import com.shiroha.mmdskin.forge.register.MmdSkinRegisterCommon;
+import com.shiroha.mmdskin.forge.stage.ForgeStageSessionRegistry;
 import com.shiroha.mmdskin.maid.MaidMMDModelManager;
-import com.shiroha.mmdskin.renderer.animation.PendingAnimSignalCache;
-import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
-import com.shiroha.mmdskin.renderer.render.MorphSyncHelper;
-import com.shiroha.mmdskin.renderer.render.StageAnimSyncHelper;
+import com.shiroha.mmdskin.player.animation.PendingAnimSignalCache;
+import com.shiroha.mmdskin.player.runtime.MmdSkinRendererPlayerHelper;
+import com.shiroha.mmdskin.player.sync.MorphSyncHelper;
 import com.shiroha.mmdskin.ui.network.NetworkOpCode;
 import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 import com.shiroha.mmdskin.ui.network.ServerModelRegistry;
@@ -23,6 +20,9 @@ import net.minecraftforge.network.PacketDistributor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Forge 网络包序列化与处理
@@ -56,7 +56,6 @@ public class MmdSkinNetworkPack {
         this.arg0 = entityId;
     }
 
-    /** 从缓冲区反序列化 */
     public MmdSkinNetworkPack(FriendlyByteBuf buffer) {
         opCode = buffer.readInt();
         playerUUID = buffer.readUUID();
@@ -73,7 +72,6 @@ public class MmdSkinNetworkPack {
         }
     }
 
-    /** 序列化到缓冲区 */
     public void pack(FriendlyByteBuf buffer) {
         buffer.writeInt(opCode);
         buffer.writeUUID(playerUUID);
@@ -88,7 +86,6 @@ public class MmdSkinNetworkPack {
         }
     }
 
-    /** 服务端/客户端统一入口 */
     public void handle(Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
             if (ctx.get().getDirection().getReceptionSide() == net.minecraftforge.fml.LogicalSide.CLIENT) {
@@ -100,23 +97,19 @@ public class MmdSkinNetworkPack {
         ctx.get().setPacketHandled(true);
     }
 
-    /** 服务端处理：鉴权 + opCode 10 回传 + 转发 */
     private void handleOnServer(NetworkEvent.Context ctx) {
         ServerPlayer sender = ctx.getSender();
         if (sender == null) return;
 
-        // 鉴权：声称的 UUID 必须与实际发送者一致
         if (!sender.getUUID().equals(playerUUID)) {
             logger.warn("UUID 不匹配，丢弃数据包: claimed={}, real={}", playerUUID, sender.getUUID());
             return;
         }
 
-        // 模型选择时更新服务端注册表
         if (opCode == NetworkOpCode.MODEL_SELECT) {
             ServerModelRegistry.updateModel(playerUUID, animId);
         }
 
-        // opCode 10：回传所有已注册模型给请求者，不转发
         if (opCode == NetworkOpCode.REQUEST_ALL_MODELS) {
             ServerModelRegistry.sendAllTo((modelOwnerUUID, modelName) ->
                 MmdSkinRegisterCommon.channel.send(
@@ -125,14 +118,23 @@ public class MmdSkinNetworkPack {
             return;
         }
 
-        // 转发给所有客户端（Forge 的 ALL 包含发送者，客户端 doInClient 会自行过滤）
+        if (opCode == NetworkOpCode.STAGE_MULTI) {
+            if (sender.getServer() != null) {
+                ForgeStageSessionRegistry.getInstance().handlePacket(sender.getServer(), sender, animId);
+            }
+            return;
+        }
+
         MmdSkinRegisterCommon.channel.send(PacketDistributor.ALL.noArg(), this);
     }
 
-    /** 客户端处理 */
     private void doInClient() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
+        if (opCode == NetworkOpCode.STAGE_MULTI) {
+            com.shiroha.mmdskin.stage.client.StageClientPacketHandler.getInstance().handle(playerUUID, animId);
+            return;
+        }
         if (playerUUID.equals(mc.player.getUUID())) return;
         if (mc.level == null) return;
 
@@ -141,7 +143,6 @@ public class MmdSkinNetworkPack {
         switch (opCode) {
             case NetworkOpCode.CUSTOM_ANIM -> {
                 if (target != null) MmdSkinRendererPlayerHelper.CustomAnim(target, animId);
-                com.shiroha.mmdskin.ui.follow.RemoteAnimCache.put(playerUUID, animId);
             }
             case NetworkOpCode.RESET_PHYSICS -> {
                 if (target != null) {
@@ -164,23 +165,8 @@ public class MmdSkinNetworkPack {
             case NetworkOpCode.MORPH_SYNC -> {
                 if (target != null) MorphSyncHelper.applyRemoteMorph(target, animId);
             }
-            case NetworkOpCode.STAGE_START -> {
-                if (target != null) StageAnimSyncHelper.startStageAnim(target, animId);
-            }
-            case NetworkOpCode.STAGE_END -> {
-                if (target != null) {
-                    StageAnimSyncHelper.endStageAnim(target);
-                } else {
-                    PendingAnimSignalCache.put(playerUUID, PendingAnimSignalCache.SignalType.STAGE_END);
-                }
-            }
-            case NetworkOpCode.STAGE_AUDIO -> {
-                if (target != null) MmdSkinRendererPlayerHelper.StageAudioPlay(target, animId);
-            }
-            case NetworkOpCode.STAGE_MULTI -> {
-                com.shiroha.mmdskin.ui.network.StageMultiHandler.handle(playerUUID, animId);
-            }
             default -> {}
         }
     }
 }
+

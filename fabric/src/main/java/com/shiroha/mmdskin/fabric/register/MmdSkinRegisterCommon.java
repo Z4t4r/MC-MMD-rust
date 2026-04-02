@@ -1,5 +1,6 @@
 package com.shiroha.mmdskin.fabric.register;
 
+import com.shiroha.mmdskin.fabric.stage.FabricStageSessionRegistry;
 import com.shiroha.mmdskin.ui.network.NetworkOpCode;
 import com.shiroha.mmdskin.ui.network.ServerModelRegistry;
 
@@ -29,14 +30,12 @@ public class MmdSkinRegisterCommon {
             int opCode = buf.readInt();
             UUID claimedUUID = buf.readUUID();
 
-            // 鉴权：客户端声称的 UUID 必须与实际发送者一致
             UUID realUUID = player.getUUID();
             if (!realUUID.equals(claimedUUID)) {
                 logger.warn("UUID 不匹配，丢弃数据包: claimed={}, real={}", claimedUUID, realUUID);
                 return;
             }
 
-            // 读取载荷
             String strData = null;
             int entityId = 0;
             int intArg = 0;
@@ -50,12 +49,10 @@ public class MmdSkinRegisterCommon {
                 intArg = buf.readInt();
             }
 
-            // opCode 3（模型选择）时更新服务端注册表
             if (opCode == NetworkOpCode.MODEL_SELECT && strData != null) {
                 ServerModelRegistry.updateModel(realUUID, strData);
             }
 
-            // opCode 10：回传所有已注册模型给请求者，不转发
             if (opCode == NetworkOpCode.REQUEST_ALL_MODELS) {
                 server.execute(() -> {
                     ServerModelRegistry.sendAllTo((modelOwnerUUID, modelName) -> {
@@ -69,7 +66,12 @@ public class MmdSkinRegisterCommon {
                 return;
             }
 
-            // 构建转发包
+            if (opCode == NetworkOpCode.STAGE_MULTI && strData != null) {
+                final String stagePayload = strData;
+                server.execute(() -> FabricStageSessionRegistry.getInstance().handlePacket(server, player, stagePayload));
+                return;
+            }
+
             final FriendlyByteBuf packetBuf = PacketByteBufs.create();
             packetBuf.writeInt(opCode);
             packetBuf.writeUUID(realUUID);
@@ -93,8 +95,11 @@ public class MmdSkinRegisterCommon {
             });
         });
 
-        // 玩家离线时清理服务端注册表
         net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.DISCONNECT.register(
-                (handler, server) -> ServerModelRegistry.onPlayerLeave(handler.getPlayer().getUUID()));
+                (handler, server) -> {
+                    ServerModelRegistry.onPlayerLeave(handler.getPlayer().getUUID());
+                    FabricStageSessionRegistry.getInstance().onPlayerDisconnect(server, handler.getPlayer());
+                });
     }
 }
+

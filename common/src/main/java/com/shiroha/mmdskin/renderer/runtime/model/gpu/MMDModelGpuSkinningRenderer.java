@@ -4,12 +4,15 @@ import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferUploader;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.config.ConfigManager;
 import com.shiroha.mmdskin.renderer.compat.IrisCompat;
 import com.shiroha.mmdskin.renderer.pipeline.shader.SkinningComputeShader;
 import com.shiroha.mmdskin.renderer.pipeline.shader.ToonShaderCpu;
 import com.shiroha.mmdskin.renderer.pipeline.shader.ToonRenderHelper;
 import com.shiroha.mmdskin.renderer.runtime.model.helper.LightingHelper;
+import com.shiroha.mmdskin.renderer.runtime.model.helper.MMDPerformanceProfiler;
+import com.shiroha.mmdskin.renderer.runtime.model.shared.MMDMaterial;
 import com.shiroha.mmdskin.renderer.runtime.model.shared.SubMeshDrawHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ShaderInstance;
@@ -46,29 +49,7 @@ final class MMDModelGpuSkinningRenderer {
         float baseScale = target.modelScaleValue();
         deliverStack.scale(baseScale, baseScale, baseScale);
 
-        MMDModelGpuSkinningUploader.uploadBoneMatrices(target);
-        if (target.vertexMorphCount > 0) {
-            MMDModelGpuSkinningUploader.uploadMorphData(target);
-        }
-        if (target.uvMorphCount > 0) {
-            MMDModelGpuSkinningUploader.uploadUvMorphData(target);
-        }
-        if (target.materialMorphResultCountValue() > 0) {
-            target.loadMaterialMorphResults();
-        }
-
-        MMDModelGpuSkinning.computeShader.dispatch(new SkinningComputeShader.DispatchParams(
-                target.positionBufferObject, target.normalBufferObject,
-                target.boneIndicesBufferObject, target.boneWeightsBufferObject, target.uv0BufferObject,
-                target.skinnedPositionsBuffer, target.skinnedNormalsBuffer, target.skinnedUvBuffer,
-                target.boneMatrixSSBO,
-                target.morphOffsetsSSBO, target.morphWeightsSSBO, target.vertexMorphCount,
-                target.uvMorphOffsetsSSBO, target.uvMorphWeightsSSBO, target.uvMorphCount,
-                target.vertexCount
-        ));
-
-        target.subMeshDataBuf.clear();
-        nativeFunc.BatchGetSubMeshData(modelHandle, target.subMeshDataBuf);
+        updateGpuStateIfDirty(target, nativeFunc, modelHandle);
 
         boolean useToon = initializeToonShaderIfNeeded();
 
@@ -87,10 +68,15 @@ final class MMDModelGpuSkinningRenderer {
         GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, target.indexBufferObject);
         target.currentDeliverStack = deliverStack;
 
-        if (useToon && MMDModelGpuSkinning.toonShaderCpu != null && MMDModelGpuSkinning.toonShaderCpu.isInitialized()) {
-            renderToon(target, minecraft, light.intensity());
-        } else {
-            renderNormal(target, minecraft, light.intensity(), light.blockLight(), light.skyLight(), light.skyDarken());
+        long drawTimer = MMDPerformanceProfiler.get().startTimer();
+        try {
+            if (useToon && MMDModelGpuSkinning.toonShaderCpu != null && MMDModelGpuSkinning.toonShaderCpu.isInitialized()) {
+                renderToon(target, minecraft, light.intensity());
+            } else {
+                renderNormal(target, minecraft, light.intensity(), light.blockLight(), light.skyLight(), light.skyDarken());
+            }
+        } finally {
+            MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_DRAW, drawTimer);
         }
 
         cleanupVertexAttributes(target);
@@ -120,6 +106,53 @@ final class MMDModelGpuSkinningRenderer {
             }
         }
         return true;
+    }
+
+    private static void updateGpuStateIfDirty(MMDModelGpuSkinning target, NativeFunc nativeFunc, long modelHandle) {
+        long currentRevision = target.nativeUpdateRevisionValue();
+        if (target.lastGpuUploadRevision == currentRevision) {
+            return;
+        }
+
+        long boneTimer = MMDPerformanceProfiler.get().startTimer();
+        MMDModelGpuSkinningUploader.uploadBoneMatrices(target);
+        MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_BONE_UPLOAD, boneTimer);
+
+        if (target.vertexMorphCount > 0 || target.uvMorphCount > 0) {
+            long morphTimer = MMDPerformanceProfiler.get().startTimer();
+            if (target.vertexMorphCount > 0) {
+                MMDModelGpuSkinningUploader.uploadMorphData(target);
+            }
+            if (target.uvMorphCount > 0) {
+                MMDModelGpuSkinningUploader.uploadUvMorphData(target);
+            }
+            MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_MORPH_UPLOAD, morphTimer);
+        }
+
+        if (target.materialMorphResultCountValue() > 0) {
+            long materialMorphTimer = MMDPerformanceProfiler.get().startTimer();
+            target.loadMaterialMorphResults();
+            MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_MATERIAL_MORPH_FETCH, materialMorphTimer);
+        }
+
+        long computeTimer = MMDPerformanceProfiler.get().startTimer();
+        MMDModelGpuSkinning.computeShader.dispatch(new SkinningComputeShader.DispatchParams(
+                target.positionBufferObject, target.normalBufferObject,
+                target.boneIndicesBufferObject, target.boneWeightsBufferObject, target.uv0BufferObject,
+                target.skinnedPositionsBuffer, target.skinnedNormalsBuffer, target.skinnedUvBuffer,
+                target.boneMatrixSSBO,
+                target.morphOffsetsSSBO, target.morphWeightsSSBO, target.vertexMorphCount,
+                target.uvMorphOffsetsSSBO, target.uvMorphWeightsSSBO, target.uvMorphCount,
+                target.vertexCount
+        ));
+        MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_COMPUTE_DISPATCH, computeTimer);
+
+        long subMeshTimer = MMDPerformanceProfiler.get().startTimer();
+        target.subMeshDataBuf.clear();
+        nativeFunc.BatchGetSubMeshData(modelHandle, target.subMeshDataBuf);
+        MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_SUB_MESH_FETCH, subMeshTimer);
+
+        target.lastGpuUploadRevision = currentRevision;
     }
 
     private static void cleanupVertexAttributes(MMDModelGpuSkinning target) {
@@ -157,14 +190,7 @@ final class MMDModelGpuSkinningRenderer {
 
         int blockBrightness = 16 * blockLight;
         int skyBrightness = irisActive ? (16 * skyLight) : Math.round((15.0f - skyDarken) * (skyLight / 15.0f) * 16);
-        target.uv2Buffer.clear();
-        for (int i = 0; i < target.vertexCount; i++) {
-            target.uv2Buffer.putInt(blockBrightness);
-            target.uv2Buffer.putInt(skyBrightness);
-        }
-        target.uv2Buffer.flip();
-        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.uv2BufferObject);
-        GL46C.glBufferSubData(GL46C.GL_ARRAY_BUFFER, 0, target.uv2Buffer);
+        uploadLightBufferIfNeeded(target, blockBrightness, skyBrightness);
 
         if (target.uv2Location != -1) {
             GL46C.glEnableVertexAttribArray(target.uv2Location);
@@ -226,6 +252,23 @@ final class MMDModelGpuSkinningRenderer {
         drawAllSubMeshes(target, minecraft);
     }
 
+    private static void uploadLightBufferIfNeeded(MMDModelGpuSkinning target, int blockBrightness, int skyBrightness) {
+        if (target.lastBlockBrightness == blockBrightness && target.lastSkyBrightness == skyBrightness) {
+            return;
+        }
+
+        target.uv2Buffer.clear();
+        for (int i = 0; i < target.vertexCount; i++) {
+            target.uv2Buffer.putInt(blockBrightness);
+            target.uv2Buffer.putInt(skyBrightness);
+        }
+        target.uv2Buffer.flip();
+        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.uv2BufferObject);
+        GL46C.glBufferSubData(GL46C.GL_ARRAY_BUFFER, 0, target.uv2Buffer);
+        target.lastBlockBrightness = blockBrightness;
+        target.lastSkyBrightness = skyBrightness;
+    }
+
     private static void renderToon(MMDModelGpuSkinning target, Minecraft minecraft, float lightIntensity) {
         boolean irisActive = IrisCompat.isIrisShaderActive();
         if (irisActive) {
@@ -234,40 +277,6 @@ final class MMDModelGpuSkinningRenderer {
                 target.setUniforms(irisShader, target.currentDeliverStack);
                 irisShader.apply();
             }
-        }
-
-        if (MMDModelGpuSkinning.toonConfig.isOutlineEnabled()) {
-            MMDModelGpuSkinning.toonShaderCpu.useOutline();
-
-            int posLoc = MMDModelGpuSkinning.toonShaderCpu.getOutlinePositionLocation();
-            int norLoc = MMDModelGpuSkinning.toonShaderCpu.getOutlineNormalLocation();
-
-            if (posLoc != -1) {
-                GL46C.glEnableVertexAttribArray(posLoc);
-                GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.skinnedPositionsBuffer);
-                GL46C.glVertexAttribPointer(posLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
-            }
-            if (norLoc != -1) {
-                GL46C.glEnableVertexAttribArray(norLoc);
-                GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.skinnedNormalsBuffer);
-                GL46C.glVertexAttribPointer(norLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
-            }
-
-            MMDModelGpuSkinning.toonShaderCpu.setOutlineProjectionMatrix(target.projMatBuff);
-            MMDModelGpuSkinning.toonShaderCpu.setOutlineModelViewMatrix(target.modelViewMatBuff);
-            ToonRenderHelper.setupOutlineUniforms(MMDModelGpuSkinning.toonShaderCpu);
-
-            GL46C.glCullFace(GL46C.GL_FRONT);
-            RenderSystem.enableCull();
-            SubMeshDrawHelper.drawOutline(
-                    target.subMeshDataBuf,
-                    target.subMeshCount,
-                    target.indexElementSize,
-                    target.indexType,
-                    target::effectiveMaterialAlpha);
-            GL46C.glCullFace(GL46C.GL_BACK);
-            if (posLoc != -1) GL46C.glDisableVertexAttribArray(posLoc);
-            if (norLoc != -1) GL46C.glDisableVertexAttribArray(norLoc);
         }
 
         MMDModelGpuSkinning.toonShaderCpu.useMain();
@@ -294,14 +303,68 @@ final class MMDModelGpuSkinningRenderer {
 
         MMDModelGpuSkinning.toonShaderCpu.setProjectionMatrix(target.projMatBuff);
         MMDModelGpuSkinning.toonShaderCpu.setModelViewMatrix(target.modelViewMatBuff);
-        ToonRenderHelper.setupToonUniforms(MMDModelGpuSkinning.toonShaderCpu, lightIntensity);
+        ToonRenderHelper.setupToonUniforms(MMDModelGpuSkinning.toonShaderCpu, lightIntensity, target.light0Direction);
 
         drawAllSubMeshes(target, minecraft);
 
         if (toonPosLoc != -1) GL46C.glDisableVertexAttribArray(toonPosLoc);
         if (toonNorLoc != -1) GL46C.glDisableVertexAttribArray(toonNorLoc);
         if (uvLoc != -1) GL46C.glDisableVertexAttribArray(uvLoc);
+
+        if (MMDModelGpuSkinning.toonConfig.isOutlineEnabled()) {
+            renderOutlinePass(target, minecraft);
+        }
+
         GL46C.glUseProgram(0);
+    }
+
+    private static void renderOutlinePass(MMDModelGpuSkinning target, Minecraft minecraft) {
+        MMDModelGpuSkinning.toonShaderCpu.useOutline();
+
+        int posLoc = MMDModelGpuSkinning.toonShaderCpu.getOutlinePositionLocation();
+        int norLoc = MMDModelGpuSkinning.toonShaderCpu.getOutlineNormalLocation();
+        int uvLoc = MMDModelGpuSkinning.toonShaderCpu.getOutlineUv0Location();
+        int outlineUvBuffer = target.skinnedUvBuffer > 0 ? target.skinnedUvBuffer : target.uv0BufferObject;
+
+        if (posLoc != -1) {
+            GL46C.glEnableVertexAttribArray(posLoc);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.skinnedPositionsBuffer);
+            GL46C.glVertexAttribPointer(posLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
+        }
+        if (norLoc != -1) {
+            GL46C.glEnableVertexAttribArray(norLoc);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.skinnedNormalsBuffer);
+            GL46C.glVertexAttribPointer(norLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
+        }
+        if (uvLoc != -1) {
+            GL46C.glEnableVertexAttribArray(uvLoc);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, outlineUvBuffer);
+            GL46C.glVertexAttribPointer(uvLoc, 2, GL46C.GL_FLOAT, false, 0, 0);
+        }
+
+        MMDModelGpuSkinning.toonShaderCpu.setOutlineProjectionMatrix(target.projMatBuff);
+        MMDModelGpuSkinning.toonShaderCpu.setOutlineModelViewMatrix(target.modelViewMatBuff);
+        ToonRenderHelper.setupOutlineUniforms(MMDModelGpuSkinning.toonShaderCpu);
+        int missingTextureId = minecraft.getTextureManager()
+                .getTexture(TextureManager.INTENTIONAL_MISSING_TEXTURE)
+                .getId();
+
+        RenderSystem.depthMask(false);
+        GL46C.glCullFace(GL46C.GL_FRONT);
+        RenderSystem.enableCull();
+        SubMeshDrawHelper.drawOutline(
+                target.subMeshDataBuf,
+                target.subMeshCount,
+                target.indexElementSize,
+                target.indexType,
+                materialId -> target.mats[materialId].tex == 0 ? missingTextureId : target.mats[materialId].tex,
+                (materialId, baseAlpha) -> effectiveOutlineAlpha(target, materialId, baseAlpha));
+        GL46C.glCullFace(GL46C.GL_BACK);
+        RenderSystem.depthMask(true);
+
+        if (posLoc != -1) GL46C.glDisableVertexAttribArray(posLoc);
+        if (norLoc != -1) GL46C.glDisableVertexAttribArray(norLoc);
+        if (uvLoc != -1) GL46C.glDisableVertexAttribArray(uvLoc);
     }
 
     private static void drawAllSubMeshes(MMDModelGpuSkinning target, Minecraft minecraft) {
@@ -315,5 +378,18 @@ final class MMDModelGpuSkinningRenderer {
                 target.indexType,
                 materialId -> target.mats[materialId].tex == 0 ? missingTextureId : target.mats[materialId].tex,
                 target::effectiveMaterialAlpha);
+    }
+
+    private static float effectiveOutlineAlpha(MMDModelGpuSkinning target, int materialId, float baseAlpha) {
+        if (materialId < 0 || materialId >= target.mats.length) {
+            return 0.0f;
+        }
+
+        MMDMaterial material = target.mats[materialId];
+        if (material == null || !material.outlineEnabled) {
+            return 0.0f;
+        }
+
+        return target.effectiveMaterialAlpha(materialId, baseAlpha);
     }
 }

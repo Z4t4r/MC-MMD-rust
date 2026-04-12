@@ -4,6 +4,7 @@ import com.shiroha.mmdskin.asset.catalog.ModelInfo;
 import com.shiroha.mmdskin.config.ConfigData;
 import com.shiroha.mmdskin.config.UIConstants;
 import com.shiroha.mmdskin.renderer.integration.entity.MobReplacementTargets;
+import com.shiroha.mmdskin.voice.config.VoicePackBindingsConfig;
 import me.shedaniel.clothconfig2.api.ConfigBuilder;
 import me.shedaniel.clothconfig2.api.ConfigCategory;
 import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
@@ -131,6 +132,15 @@ public class ModConfigScreen {
             .setSaveConsumer(value -> data.textureCacheBudgetMB = value)
             .build());
 
+        performanceCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.max_visible_models"),
+                data.maxVisibleModelsPerFrame, 1, 50)
+            .setDefaultValue(10)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.max_visible_models.tooltip"))
+            .setSaveConsumer(value -> data.maxVisibleModelsPerFrame = value)
+            .build());
+
         ConfigCategory toonCategory = builder.getOrCreateCategory(
             Component.translatable("gui.mmdskin.mod_settings.category.toon"));
 
@@ -147,7 +157,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_levels"),
                 data.toonLevels, 2, 5)
-            .setDefaultValue(3)
+            .setDefaultValue(4)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.toon_levels.tooltip"))
             .setSaveConsumer(value -> data.toonLevels = value)
             .build());
@@ -156,7 +166,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_rim_power"),
                 (int) (data.toonRimPower * 10), 10, 100)
-            .setDefaultValue(30)
+            .setDefaultValue(56)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.toon_rim_power.tooltip"))
             .setSaveConsumer(value -> data.toonRimPower = value / 10.0f)
             .build());
@@ -165,7 +175,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_rim_intensity"),
                 (int) (data.toonRimIntensity * 100), 0, 100)
-            .setDefaultValue(30)
+            .setDefaultValue(2)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.toon_rim_intensity.tooltip"))
             .setSaveConsumer(value -> data.toonRimIntensity = value / 100.0f)
             .build());
@@ -174,7 +184,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_shadow_r"),
                 (int) (data.toonShadowR * 100), 0, 100)
-            .setDefaultValue(60)
+            .setDefaultValue(78)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.toon_shadow.tooltip"))
             .setSaveConsumer(value -> data.toonShadowR = value / 100.0f)
             .build());
@@ -183,7 +193,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_shadow_g"),
                 (int) (data.toonShadowG * 100), 0, 100)
-            .setDefaultValue(50)
+            .setDefaultValue(84)
             .setSaveConsumer(value -> data.toonShadowG = value / 100.0f)
             .build());
 
@@ -191,7 +201,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_shadow_b"),
                 (int) (data.toonShadowB * 100), 0, 100)
-            .setDefaultValue(70)
+            .setDefaultValue(94)
             .setSaveConsumer(value -> data.toonShadowB = value / 100.0f)
             .build());
 
@@ -199,7 +209,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_specular_power"),
                 (int) data.toonSpecularPower, 1, 128)
-            .setDefaultValue(32)
+            .setDefaultValue(96)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.toon_specular_power.tooltip"))
             .setSaveConsumer(value -> data.toonSpecularPower = value)
             .build());
@@ -208,7 +218,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_specular_intensity"),
                 (int) (data.toonSpecularIntensity * 100), 0, 100)
-            .setDefaultValue(50)
+            .setDefaultValue(2)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.toon_specular_intensity.tooltip"))
             .setSaveConsumer(value -> data.toonSpecularIntensity = value / 100.0f)
             .build());
@@ -226,7 +236,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_outline_width"),
                 (int) (data.toonOutlineWidth * 1000), 1, 100)
-            .setDefaultValue(20)
+            .setDefaultValue(2)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.toon_outline_width.tooltip"))
             .setSaveConsumer(value -> data.toonOutlineWidth = value / 1000.0f)
             .build());
@@ -235,7 +245,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_outline_r"),
                 (int) (data.toonOutlineR * 100), 0, 100)
-            .setDefaultValue(10)
+            .setDefaultValue(6)
             .setTooltip(Component.translatable("gui.mmdskin.mod_settings.toon_outline_color.tooltip"))
             .setSaveConsumer(value -> data.toonOutlineR = value / 100.0f)
             .build());
@@ -244,7 +254,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_outline_g"),
                 (int) (data.toonOutlineG * 100), 0, 100)
-            .setDefaultValue(10)
+            .setDefaultValue(8)
             .setSaveConsumer(value -> data.toonOutlineG = value / 100.0f)
             .build());
 
@@ -252,7 +262,7 @@ public class ModConfigScreen {
             .startIntSlider(
                 Component.translatable("gui.mmdskin.mod_settings.toon_outline_b"),
                 (int) (data.toonOutlineB * 100), 0, 100)
-            .setDefaultValue(10)
+            .setDefaultValue(12)
             .setSaveConsumer(value -> data.toonOutlineB = value / 100.0f)
             .build());
 
@@ -349,6 +359,15 @@ public class ModConfigScreen {
             .setSaveConsumer(value -> data.physicsDebugLog = value)
             .build());
 
+        physicsCategory.addEntry(entryBuilder
+            .startIntSlider(
+                Component.translatable("gui.mmdskin.mod_settings.max_physics_models"),
+                data.maxPhysicsModelsPerFrame, 1, 50)
+            .setDefaultValue(10)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.max_physics_models.tooltip"))
+            .setSaveConsumer(value -> data.maxPhysicsModelsPerFrame = value)
+            .build());
+
         ConfigCategory debugCategory = builder.getOrCreateCategory(
             Component.translatable("gui.mmdskin.mod_settings.category.debug"));
 
@@ -374,6 +393,25 @@ public class ModConfigScreen {
                 target,
                 getMobReplacementValue(data, entityTypeId),
                 value -> saveMobReplacementSelection(data, entityTypeId, value)
+            ));
+        }
+
+        ConfigCategory mobVoiceCategory = builder.getOrCreateCategory(
+            Component.translatable("gui.mmdskin.mod_settings.category.mob_voice_pack"));
+        mobVoiceCategory.addEntry(entryBuilder
+            .startTextDescription(Component.translatable("gui.mmdskin.mod_settings.mob_voice_pack.description"))
+            .build());
+        mobVoiceCategory.addEntry(new MobVoicePackListEntry(
+            Component.translatable("gui.mmdskin.voice.row.default"),
+            VoicePackBindingsConfig.getInstance().getMobDefaultPackId(),
+            value -> VoicePackBindingsConfig.getInstance().setMobDefaultPackId(value)
+        ));
+        for (MobReplacementTargets.Target target : MobReplacementTargets.all()) {
+            String entityTypeId = target.entityTypeId().toString();
+            mobVoiceCategory.addEntry(new MobVoicePackListEntry(
+                target,
+                VoicePackBindingsConfig.getInstance().getMobEntityTypePackId(entityTypeId),
+                value -> VoicePackBindingsConfig.getInstance().setMobEntityTypePackId(entityTypeId, value)
             ));
         }
 
@@ -432,6 +470,13 @@ public class ModConfigScreen {
             return Component.translatable("gui.mmdskin.mod_settings.mob_replacement.vanilla");
         }
         return Component.literal(modelName);
+    }
+
+    static Component toVoicePackSelectionComponent(String packLabel) {
+        if (packLabel == null || packLabel.isBlank()) {
+            return Component.translatable("gui.mmdskin.voice.pack.none");
+        }
+        return Component.literal(packLabel);
     }
 
     static void saveMobReplacementSelection(ConfigData data, String entityTypeId, String value) {

@@ -10,6 +10,8 @@ import com.shiroha.mmdskin.renderer.compat.IrisCompat;
 import com.shiroha.mmdskin.renderer.pipeline.shader.ToonShaderCpu;
 import com.shiroha.mmdskin.renderer.pipeline.shader.ToonRenderHelper;
 import com.shiroha.mmdskin.renderer.runtime.model.helper.LightingHelper;
+import com.shiroha.mmdskin.renderer.runtime.model.helper.MMDPerformanceProfiler;
+import com.shiroha.mmdskin.renderer.runtime.model.shared.MMDMaterial;
 import com.shiroha.mmdskin.renderer.runtime.model.shared.SubMeshDrawHelper;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ShaderInstance;
@@ -46,17 +48,32 @@ final class MMDModelOpenGLRenderer {
         float baseScale = target.modelScaleValue();
         deliverStack.scale(baseScale, baseScale, baseScale);
 
+        long materialMorphTimer = MMDPerformanceProfiler.get().startTimer();
         target.loadMaterialMorphResults();
+        MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_MATERIAL_MORPH_FETCH, materialMorphTimer);
+
+        long subMeshTimer = MMDPerformanceProfiler.get().startTimer();
         target.subMeshDataBuf.clear();
         nativeFunc.BatchGetSubMeshData(modelHandle, target.subMeshDataBuf);
+        MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_SUB_MESH_FETCH, subMeshTimer);
 
         boolean useToon = initializeToonShaderIfNeeded();
         if (useToon) {
-            renderToon(target, minecraft, light.intensity(), deliverStack);
+            long drawTimer = MMDPerformanceProfiler.get().startTimer();
+            try {
+                renderToon(target, minecraft, light.intensity(), deliverStack);
+            } finally {
+                MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_DRAW, drawTimer);
+            }
             return;
         }
 
-        renderStandard(target, minecraft, light, deliverStack);
+        long drawTimer = MMDPerformanceProfiler.get().startTimer();
+        try {
+            renderStandard(target, minecraft, light, deliverStack);
+        } finally {
+            MMDPerformanceProfiler.get().endTimer(MMDPerformanceProfiler.SECTION_DRAW, drawTimer);
+        }
     }
 
     private static boolean initializeToonShaderIfNeeded() {
@@ -152,6 +169,14 @@ final class MMDModelOpenGLRenderer {
         int blockBrightness = 16 * blockLight;
         int skyBrightness = irisActive ? (16 * skyLight)
                 : Math.round((15.0f - skyDarken) * (skyLight / 15.0f) * 16);
+        uploadLightBufferIfNeeded(target, blockBrightness, skyBrightness);
+    }
+
+    private static void uploadLightBufferIfNeeded(MMDModelOpenGL target, int blockBrightness, int skyBrightness) {
+        if (target.lastBlockBrightness == blockBrightness && target.lastSkyBrightness == skyBrightness) {
+            return;
+        }
+
         target.uv2Buffer.clear();
         for (int i = 0; i < target.vertexCount; i++) {
             target.uv2Buffer.putInt(blockBrightness);
@@ -160,6 +185,8 @@ final class MMDModelOpenGLRenderer {
         target.uv2Buffer.flip();
         GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.uv2BufferObject);
         GL46C.glBufferSubData(GL46C.GL_ARRAY_BUFFER, 0, target.uv2Buffer);
+        target.lastBlockBrightness = blockBrightness;
+        target.lastSkyBrightness = skyBrightness;
     }
 
     private static void uploadMatrixUniforms(MMDModelOpenGL target, PoseStack deliverStack) {
@@ -402,11 +429,11 @@ final class MMDModelOpenGLRenderer {
         RenderSystem.getProjectionMatrix().get(target.projMatBuff);
         GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, target.indexBufferObject);
 
-        if (MMDModelOpenGL.toonConfig.isOutlineEnabled()) {
-            renderOutlinePass(target);
-        }
-
         renderToonMainPass(target, minecraft, lightIntensity);
+
+        if (MMDModelOpenGL.toonConfig.isOutlineEnabled()) {
+            renderOutlinePass(target, minecraft);
+        }
 
         GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, 0);
         GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -416,10 +443,11 @@ final class MMDModelOpenGLRenderer {
         BufferUploader.reset();
     }
 
-    private static void renderOutlinePass(MMDModelOpenGL target) {
+    private static void renderOutlinePass(MMDModelOpenGL target, Minecraft minecraft) {
         MMDModelOpenGL.toonShaderCpu.useOutline();
         int posLoc = MMDModelOpenGL.toonShaderCpu.getOutlinePositionLocation();
         int norLoc = MMDModelOpenGL.toonShaderCpu.getOutlineNormalLocation();
+        int uvLoc = MMDModelOpenGL.toonShaderCpu.getOutlineUv0Location();
 
         if (posLoc != -1) {
             GL46C.glEnableVertexAttribArray(posLoc);
@@ -431,11 +459,20 @@ final class MMDModelOpenGLRenderer {
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.normalBufferObject);
             GL46C.glVertexAttribPointer(norLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
         }
+        if (uvLoc != -1) {
+            GL46C.glEnableVertexAttribArray(uvLoc);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.texcoordBufferObject);
+            GL46C.glVertexAttribPointer(uvLoc, 2, GL46C.GL_FLOAT, false, 0, 0);
+        }
 
         MMDModelOpenGL.toonShaderCpu.setOutlineProjectionMatrix(target.projMatBuff);
         MMDModelOpenGL.toonShaderCpu.setOutlineModelViewMatrix(target.modelViewMatBuff);
         ToonRenderHelper.setupOutlineUniforms(MMDModelOpenGL.toonShaderCpu);
+        int missingTextureId = minecraft.getTextureManager()
+                .getTexture(TextureManager.INTENTIONAL_MISSING_TEXTURE)
+                .getId();
 
+        RenderSystem.depthMask(false);
         GL46C.glCullFace(GL46C.GL_FRONT);
         RenderSystem.enableCull();
         SubMeshDrawHelper.drawOutline(
@@ -443,11 +480,14 @@ final class MMDModelOpenGLRenderer {
                 target.subMeshCount,
                 target.indexElementSize,
                 target.indexType,
-                target::effectiveMaterialAlpha);
+                materialId -> target.mats[materialId].tex == 0 ? missingTextureId : target.mats[materialId].tex,
+                (materialId, baseAlpha) -> effectiveOutlineAlpha(target, materialId, baseAlpha));
         GL46C.glCullFace(GL46C.GL_BACK);
+        RenderSystem.depthMask(true);
 
         if (posLoc != -1) GL46C.glDisableVertexAttribArray(posLoc);
         if (norLoc != -1) GL46C.glDisableVertexAttribArray(norLoc);
+        if (uvLoc != -1) GL46C.glDisableVertexAttribArray(uvLoc);
     }
 
     private static void renderToonMainPass(MMDModelOpenGL target, Minecraft minecraft, float lightIntensity) {
@@ -474,12 +514,25 @@ final class MMDModelOpenGLRenderer {
 
         MMDModelOpenGL.toonShaderCpu.setProjectionMatrix(target.projMatBuff);
         MMDModelOpenGL.toonShaderCpu.setModelViewMatrix(target.modelViewMatBuff);
-        ToonRenderHelper.setupToonUniforms(MMDModelOpenGL.toonShaderCpu, lightIntensity);
+        ToonRenderHelper.setupToonUniforms(MMDModelOpenGL.toonShaderCpu, lightIntensity, target.light0Direction);
 
         drawSubMeshes(target, minecraft);
 
         if (posLoc != -1) GL46C.glDisableVertexAttribArray(posLoc);
         if (norLoc != -1) GL46C.glDisableVertexAttribArray(norLoc);
         if (uvLoc != -1) GL46C.glDisableVertexAttribArray(uvLoc);
+    }
+
+    private static float effectiveOutlineAlpha(MMDModelOpenGL target, int materialId, float baseAlpha) {
+        if (materialId < 0 || materialId >= target.mats.length) {
+            return 0.0f;
+        }
+
+        MMDMaterial material = target.mats[materialId];
+        if (material == null || !material.outlineEnabled) {
+            return 0.0f;
+        }
+
+        return target.effectiveMaterialAlpha(materialId, baseAlpha);
     }
 }
